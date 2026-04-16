@@ -4,6 +4,7 @@ Final version with:
 - Editable target/SL percentage in Quick Order
 - Dark green (#00aa55) and red colors for P&L and percentages
 - All tabs fully functional
+- Quick Order dialog with toggle button to hide/show main window
 """
 
 import sys
@@ -537,12 +538,49 @@ class QuickOrderDialog(QDialog):
         self.convert_btn.clicked.connect(self.convert_target_sl)
         layout.addWidget(self.convert_btn)
 
+        # Toggle main window button (minimize/restore)
+        self.toggle_main_btn = QPushButton("Minimize Main Window")
+        self.toggle_main_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #5a5a5a;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 8px;
+            }
+            QPushButton:hover {
+                background-color: #7a7a7a;
+            }
+        """)
+        self.toggle_main_btn.clicked.connect(self.toggle_main_window)
+        layout.addWidget(self.toggle_main_btn)
+
         # Status label
         self.status_label = QLabel("Ready")
         self.status_label.setStyleSheet("padding: 5px; color: #e0e0e0;")
         layout.addWidget(self.status_label)
 
         self.setLayout(layout)
+
+    def toggle_main_window(self):
+        # Find the main ZerodhaDashboard window by traversing parents
+        main_window = self.parent()
+        while main_window and not isinstance(main_window, ZerodhaDashboard):
+            main_window = main_window.parent()
+        if main_window:
+            if main_window.isMinimized():
+                main_window.showNormal()
+                main_window.raise_()
+                self.toggle_main_btn.setText("Minimize Main Window")
+                # Remove stay-on-top flag
+                self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowStaysOnTopHint)
+                self.show()
+            else:
+                main_window.showMinimized()
+                self.toggle_main_btn.setText("Restore Main Window")
+                # Keep this dialog on top
+                self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+                self.show()
 
     def on_symbol_changed(self, text):
         if text.strip():
@@ -857,6 +895,8 @@ class QuickOrderDialog(QDialog):
         self.workers.append(worker)
         worker.finished.connect(lambda: self.workers.remove(worker))
         worker.error.connect(lambda: self.workers.remove(worker))
+
+
 # ========== Order Placement Tab ==========
 class OrderPlacementTab(BaseTab):
     def __init__(self, client, log_callback):
