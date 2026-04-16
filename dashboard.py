@@ -1,16 +1,9 @@
 """
 Zerodha Trading Dashboard - PyQt6 GUI
-All features:
-- Holdings tab: coloured summary cards, coloured Net/ Day % columns
-- Positions tab: summary cards (Net P&L, Unrealized P&L), coloured rows
-- Open Orders tab: view pending orders
-- Funds tab: margin cards
-- Place Order tab: full order placement + Quick Order popup
-- Quick Order: place market order + automatic 1% target/stop-loss; convert between target/SL
-- Auto-refresh on tab click
-- Square log console (top‑right) with filters
-- Cancel last pending / all open orders
-- Dark theme, button styles via optional style.qss
+Final version with:
+- Editable target/SL percentage in Quick Order
+- Dark green (#00aa55) and red colors for P&L and percentages
+- All tabs fully functional
 """
 
 import sys
@@ -26,7 +19,7 @@ from PyQt6.QtWidgets import (
     QFrame, QDialog, QRadioButton
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QEvent
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QColor
 
 from trading_client import ZerodhaClient
 
@@ -136,7 +129,7 @@ class HoldingsTab(BaseTab):
                         num_str = val.replace('%', '').replace('+', '').replace('-', '')
                         num = float(num_str)
                         if num > 0:
-                            item.setForeground(Qt.GlobalColor.green)
+                            item.setForeground(QColor("#00aa55"))   # dark green
                         elif num < 0:
                             item.setForeground(Qt.GlobalColor.red)
                         font = item.font()
@@ -165,7 +158,7 @@ class HoldingsTab(BaseTab):
             day_text = f"Day's P&L: ₹{day_pnl_rounded:,.2f} ({day_pnl_pct:+.2f}%)"
             self.day_pnl_label.setText(day_text)
             if day_pnl > 0:
-                self.day_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #00e5a0;")
+                self.day_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #00aa55;")
             elif day_pnl < 0:
                 self.day_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #ff4d6d;")
             else:
@@ -177,7 +170,7 @@ class HoldingsTab(BaseTab):
             total_text = f"Total P&L: ₹{total_pnl_rounded:,.2f} ({total_pnl_pct:+.2f}%)"
             self.total_pnl_label.setText(total_text)
             if total_pnl > 0:
-                self.total_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #00e5a0;")
+                self.total_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #00aa55;")
             elif total_pnl < 0:
                 self.total_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #ff4d6d;")
             else:
@@ -256,7 +249,7 @@ class PositionsTab(BaseTab):
                 if j == 4 or j == 5:
                     num_val = float(val) if val != '--' else 0
                     if num_val > 0:
-                        item.setForeground(Qt.GlobalColor.green)
+                        item.setForeground(QColor("#00aa55"))
                     elif num_val < 0:
                         item.setForeground(Qt.GlobalColor.red)
                     font = item.font()
@@ -279,7 +272,7 @@ class PositionsTab(BaseTab):
         text = f"{title}: ₹{value_rounded:,.2f}"
         label.setText(text)
         if value > 0:
-            label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #00e5a0;")
+            label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #00aa55;")
         elif value < 0:
             label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #ff4d6d;")
         else:
@@ -406,7 +399,7 @@ class QuickOrderDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Quick Order")
         self.setModal(True)
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(450)
 
         self.client = client
         self.log = log_callback
@@ -418,8 +411,9 @@ class QuickOrderDialog(QDialog):
 
     def init_ui(self):
         layout = QVBoxLayout()
+        layout.setSpacing(12)
 
-        # Symbol selection
+        # Symbol selection row
         symbol_layout = QHBoxLayout()
         self.symbol_combo = QComboBox()
         self.symbol_combo.setEditable(True)
@@ -432,54 +426,120 @@ class QuickOrderDialog(QDialog):
         self.symbol_combo.currentTextChanged.connect(self.on_symbol_changed)
         symbol_layout.addWidget(QLabel("Symbol:"), 1)
         symbol_layout.addWidget(self.symbol_combo, 3)
+
         self.fetch_ltp_btn = QPushButton("Fetch LTP")
-        self.fetch_ltp_btn.setObjectName("primaryBtn")
+        self.fetch_ltp_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #5dade2;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #3498db;
+            }
+        """)
         self.fetch_ltp_btn.clicked.connect(self.fetch_ltp)
         symbol_layout.addWidget(self.fetch_ltp_btn)
         layout.addLayout(symbol_layout)
 
-        # LTP display
-        self.ltp_label = QLabel("Last Traded Price: --")
-        self.ltp_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        # LTP display - black box, white bold text
+        self.ltp_label = QLabel("LTP : --")
+        self.ltp_label.setStyleSheet("""
+            font-weight: bold;
+            font-size: 14px;
+            padding: 8px;
+            background-color: #000000;
+            border-radius: 4px;
+            color: white;
+        """)
         layout.addWidget(self.ltp_label)
 
-        # Quantity
+        # Quantity row
         qty_layout = QHBoxLayout()
         qty_layout.addWidget(QLabel("Quantity:"))
         self.quantity_spin = QSpinBox()
         self.quantity_spin.setRange(1, 10000)
         qty_layout.addWidget(self.quantity_spin)
+        qty_layout.addStretch()
         layout.addLayout(qty_layout)
 
-        # Buy / Sell buttons
+        # Buy / Sell buttons row
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(20)
         self.buy_btn = QPushButton("BUY")
-        self.buy_btn.setObjectName("primaryBtn")
+        self.buy_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
         self.buy_btn.clicked.connect(lambda: self.place_order("BUY"))
+
         self.sell_btn = QPushButton("SELL")
-        self.sell_btn.setObjectName("primaryBtn")
+        self.sell_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #2ecc71;
+            }
+        """)
         self.sell_btn.clicked.connect(lambda: self.place_order("SELL"))
+
         btn_layout.addWidget(self.buy_btn)
         btn_layout.addWidget(self.sell_btn)
         layout.addLayout(btn_layout)
 
-        # Target / SL toggle
-        toggle_layout = QHBoxLayout()
-        self.target_radio = QRadioButton("Target (1%)")
-        self.sl_radio = QRadioButton("Stop Loss (1%)")
+        # Target / SL toggle with percentage
+        percent_layout = QHBoxLayout()
+        self.target_radio = QRadioButton("Target")
+        self.sl_radio = QRadioButton("Stop Loss")
         self.target_radio.setChecked(True)
-        toggle_layout.addWidget(self.target_radio)
-        toggle_layout.addWidget(self.sl_radio)
-        layout.addLayout(toggle_layout)
+        self.percent_spin = QDoubleSpinBox()
+        self.percent_spin.setRange(0.1, 10.0)
+        self.percent_spin.setValue(1.0)
+        self.percent_spin.setSuffix("%")
+        self.percent_spin.setSingleStep(0.1)
+        self.percent_spin.setFixedWidth(80)
+        percent_layout.addWidget(self.target_radio)
+        percent_layout.addWidget(self.sl_radio)
+        percent_layout.addWidget(QLabel("Percentage:"))
+        percent_layout.addWidget(self.percent_spin)
+        percent_layout.addStretch()
+        layout.addLayout(percent_layout)
 
         # Convert button
         self.convert_btn = QPushButton("Convert Target ↔ SL")
-        self.convert_btn.setObjectName("neutralBtn")
+        self.convert_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f39c12;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 8px;
+            }
+            QPushButton:hover {
+                background-color: #e67e22;
+            }
+        """)
         self.convert_btn.clicked.connect(self.convert_target_sl)
         layout.addWidget(self.convert_btn)
 
         # Status label
         self.status_label = QLabel("Ready")
+        self.status_label.setStyleSheet("padding: 5px; color: #e0e0e0;")
         layout.addWidget(self.status_label)
 
         self.setLayout(layout)
@@ -503,7 +563,7 @@ class QuickOrderDialog(QDialog):
         self.fetch_ltp_btn.setEnabled(True)
         if ltp:
             self.current_ltp = ltp
-            self.ltp_label.setText(f"Last Traded Price: ₹{ltp:,.2f}")
+            self.ltp_label.setText(f"LTP : ₹{ltp:,.2f}")
             self.status_label.setText("Ready")
             self.log(f"Quick order LTP fetched: ₹{ltp:,.2f}", category="Info")
         else:
@@ -528,7 +588,6 @@ class QuickOrderDialog(QDialog):
         self.status_label.setText(f"Placing {transaction_type} market order...")
         self.log(f"Quick order: Placing {transaction_type} market order for {quantity} {self.current_symbol}", category="Info")
 
-        # Use trading.market directly (compatible with existing client)
         exchange = "NSE"
         self._run_worker(
             self.client.trading.market,
@@ -548,7 +607,6 @@ class QuickOrderDialog(QDialog):
         self.status_label.setText(f"Main order placed. ID: {order_id}")
         self.log(f"Quick order main {transaction_type} order placed. ID: {order_id}", category="Success")
 
-        # Fetch position to get average price
         self._run_worker(
             self.client.positions.get_net_positions,
             lambda positions: self.place_target_sl_order(positions, transaction_type, quantity, is_target),
@@ -556,7 +614,6 @@ class QuickOrderDialog(QDialog):
         )
 
     def place_target_sl_order(self, positions, transaction_type, quantity, is_target):
-        # Find position for current symbol
         pos = None
         for p in positions:
             if p.get('tradingsymbol') == self.current_symbol:
@@ -572,30 +629,33 @@ class QuickOrderDialog(QDialog):
             self.status_label.setText("Invalid average price")
             return
 
-        # Determine order type and price for target/SL
+        percent = self.percent_spin.value() / 100.0
+        multiplier_up = 1.0 + percent
+        multiplier_down = 1.0 - percent
+
         if transaction_type == "BUY":
             exit_transaction = "SELL"
             if is_target:
                 order_type_api = "LIMIT"
-                price = avg_price * 1.01
+                price = avg_price * multiplier_up
                 trigger_price = 0
                 order_desc = "Target"
             else:
                 order_type_api = "SL"
-                price = avg_price * 0.99
-                trigger_price = avg_price * 0.99
+                price = avg_price * multiplier_down
+                trigger_price = price
                 order_desc = "Stop Loss"
-        else:  # SELL
+        else:
             exit_transaction = "BUY"
             if is_target:
                 order_type_api = "LIMIT"
-                price = avg_price * 0.99
+                price = avg_price * multiplier_down
                 trigger_price = 0
                 order_desc = "Target"
             else:
                 order_type_api = "SL"
-                price = avg_price * 1.01
-                trigger_price = avg_price * 1.01
+                price = avg_price * multiplier_up
+                trigger_price = price
                 order_desc = "Stop Loss"
 
         payload = {
@@ -700,17 +760,23 @@ class QuickOrderDialog(QDialog):
         if not pos:
             self.status_label.setText("No open position found for SL")
             return
+
         avg_price = pos.get('average_price', 0.0)
         quantity = abs(pos.get('quantity', 0))
         transaction_type = "SELL" if pos.get('quantity') > 0 else "BUY"
+        percent = self.percent_spin.value() / 100.0
+        multiplier_up = 1.0 + percent
+        multiplier_down = 1.0 - percent
+
         if transaction_type == "SELL":
             order_type_api = "SL"
-            price = avg_price * 0.99
-            trigger_price = avg_price * 0.99
+            price = avg_price * multiplier_down
+            trigger_price = price
         else:
             order_type_api = "SL"
-            price = avg_price * 1.01
-            trigger_price = avg_price * 1.01
+            price = avg_price * multiplier_up
+            trigger_price = price
+
         payload = {
             'exchange': "NSE",
             'tradingsymbol': self.current_symbol,
@@ -750,13 +816,19 @@ class QuickOrderDialog(QDialog):
         if not pos:
             self.status_label.setText("No open position found for target")
             return
+
         avg_price = pos.get('average_price', 0.0)
         quantity = abs(pos.get('quantity', 0))
         transaction_type = "SELL" if pos.get('quantity') > 0 else "BUY"
+        percent = self.percent_spin.value() / 100.0
+        multiplier_up = 1.0 + percent
+        multiplier_down = 1.0 - percent
+
         if transaction_type == "SELL":
-            price = avg_price * 1.01
+            price = avg_price * multiplier_up
         else:
-            price = avg_price * 0.99
+            price = avg_price * multiplier_down
+
         payload = {
             'exchange': "NSE",
             'tradingsymbol': self.current_symbol,
@@ -785,8 +857,6 @@ class QuickOrderDialog(QDialog):
         self.workers.append(worker)
         worker.finished.connect(lambda: self.workers.remove(worker))
         worker.error.connect(lambda: self.workers.remove(worker))
-
-
 # ========== Order Placement Tab ==========
 class OrderPlacementTab(BaseTab):
     def __init__(self, client, log_callback):
@@ -1096,20 +1166,17 @@ class OrderPlacementTab(BaseTab):
     def order_placed(self, result, success):
         self.place_btn.setEnabled(True)
         if success:
-            # result is the JSON response from _place_order (already a dict)
             if isinstance(result, dict) and result.get('status') == 'success':
                 oid = result.get('data', {}).get('order_id', 'N/A')
                 self.status_label.setText(f"Order placed! Order ID: {oid}")
                 self.log(f"✅ Order placed successfully. Order ID: {oid}", category="Success")
                 QMessageBox.information(self, "Success", f"Order placed successfully.\nOrder ID: {oid}")
             else:
-                # result might be an error dict with 'message'
                 error_msg = result.get('message', str(result))
                 self.status_label.setText(f"Order failed: {error_msg[:100]}")
                 self.log(f"❌ Order failed: {error_msg}", category="Error", error=True)
                 QMessageBox.critical(self, "Order Failed", error_msg)
         else:
-            # result is the error string from worker
             self.status_label.setText(f"Order failed: {str(result)[:100]}")
             self.log(f"❌ Order failed: {str(result)}", category="Error", error=True)
             QMessageBox.critical(self, "Order Failed", str(result))
