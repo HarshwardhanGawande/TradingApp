@@ -1,14 +1,20 @@
 """
 Zerodha Trading Dashboard - PyQt6 GUI
-Final layout:
-- Log console at top‑right, square (20% width, height = width)
-- Tabs on left, filling remaining space
-- Default active tab: Place Order
-- Funds tab: 3 horizontal cards
-- All previous features (auto‑refresh on tab click, fetch LTP on Enter, etc.)
+All features:
+- Holdings tab: coloured summary cards, coloured Net/ Day % columns
+- Positions tab: summary cards (Net P&L, Unrealized P&L), coloured rows
+- Open Orders tab: view pending orders
+- Funds tab: margin cards
+- Place Order tab: full order placement + Quick Order popup
+- Quick Order: place market order + automatic 1% target/stop-loss; convert between target/SL
+- Auto-refresh on tab click
+- Square log console (top‑right) with filters
+- Cancel last pending / all open orders
+- Dark theme, button styles via optional style.qss
 """
 
 import sys
+import os
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -17,7 +23,7 @@ from PyQt6.QtWidgets import (
     QTabWidget, QTableWidget, QTableWidgetItem, QLabel, QPushButton,
     QComboBox, QSpinBox, QDoubleSpinBox, QGroupBox, QFormLayout,
     QMessageBox, QHeaderView, QGridLayout, QTextEdit, QCheckBox,
-    QFrame,QLineEdit   
+    QFrame, QDialog, QRadioButton
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QEvent
 from PyQt6.QtGui import QFont
@@ -83,7 +89,7 @@ class HoldingsTab(BaseTab):
         self.total_pnl_label = QLabel("Total P&L: --")
         for label in [self.total_invested_label, self.current_value_label,
                       self.day_pnl_label, self.total_pnl_label]:
-            label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #f0f0f0; border-radius: 5px;")
+            label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px;")
             summary_layout.addWidget(label)
         layout.addLayout(summary_layout)
 
@@ -93,6 +99,7 @@ class HoldingsTab(BaseTab):
         layout.addWidget(self.table)
 
         btn_refresh = QPushButton("Refresh Holdings")
+        btn_refresh.setObjectName("neutralBtn")
         btn_refresh.clicked.connect(self.refresh_data)
         layout.addWidget(btn_refresh)
         self.setLayout(layout)
@@ -116,12 +123,30 @@ class HoldingsTab(BaseTab):
         self.table.setRowCount(df.shape[0])
         self.table.setColumnCount(df.shape[1])
         self.table.setHorizontalHeaderLabels(df.columns)
+
         for i, row in df.iterrows():
             for j, val in enumerate(row):
                 item = QTableWidgetItem(str(val))
                 if j not in [0]:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+                # Color Net chg. and Day chg. columns (indices 7 and 8)
+                if j == 7 or j == 8:
+                    try:
+                        num_str = val.replace('%', '').replace('+', '').replace('-', '')
+                        num = float(num_str)
+                        if num > 0:
+                            item.setForeground(Qt.GlobalColor.green)
+                        elif num < 0:
+                            item.setForeground(Qt.GlobalColor.red)
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                    except:
+                        pass
+
                 self.table.setItem(i, j, item)
+
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
@@ -130,12 +155,34 @@ class HoldingsTab(BaseTab):
             total_invested = sum(h['average_price'] * h['quantity'] for h in holdings)
             total_current = sum(h['last_price'] * h['quantity'] for h in holdings)
             day_pnl, total_pnl = self.client.get_holdings_summary()
+
             self.total_invested_label.setText(f"Total Invested: ₹{total_invested:,.2f}")
             self.current_value_label.setText(f"Current Value: ₹{total_current:,.2f}")
+
+            # Day's P&L
+            day_pnl_rounded = round(day_pnl, 2)
             day_pnl_pct = (day_pnl / total_invested * 100) if total_invested else 0
-            self.day_pnl_label.setText(f"Day's P&L: ₹{day_pnl:,.2f} ({day_pnl_pct:+.2f}%)")
+            day_text = f"Day's P&L: ₹{day_pnl_rounded:,.2f} ({day_pnl_pct:+.2f}%)"
+            self.day_pnl_label.setText(day_text)
+            if day_pnl > 0:
+                self.day_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #00e5a0;")
+            elif day_pnl < 0:
+                self.day_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #ff4d6d;")
+            else:
+                self.day_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #e0e0e0;")
+
+            # Total P&L
+            total_pnl_rounded = round(total_pnl, 2)
             total_pnl_pct = (total_pnl / total_invested * 100) if total_invested else 0
-            self.total_pnl_label.setText(f"Total P&L: ₹{total_pnl:,.2f} ({total_pnl_pct:+.2f}%)")
+            total_text = f"Total P&L: ₹{total_pnl_rounded:,.2f} ({total_pnl_pct:+.2f}%)"
+            self.total_pnl_label.setText(total_text)
+            if total_pnl > 0:
+                self.total_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #00e5a0;")
+            elif total_pnl < 0:
+                self.total_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #ff4d6d;")
+            else:
+                self.total_pnl_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #e0e0e0;")
+
             self.log(f"Holdings refreshed. Total P&L: ₹{total_pnl:,.2f}", category="Success")
         except Exception as e:
             self.log(f"Summary error: {e}", category="Error", error=True)
@@ -151,9 +198,21 @@ class PositionsTab(BaseTab):
 
     def init_ui(self):
         layout = QVBoxLayout()
+
+        # Summary cards (horizontal layout)
+        summary_layout = QHBoxLayout()
+        self.net_pnl_label = QLabel("Net P&L: --")
+        self.unrealized_label = QLabel("Unrealized P&L: --")
+        for label in [self.net_pnl_label, self.unrealized_label]:
+            label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px;")
+            summary_layout.addWidget(label)
+        layout.addLayout(summary_layout)
+
         self.table = QTableWidget()
         layout.addWidget(self.table)
+
         btn = QPushButton("Refresh Positions")
+        btn.setObjectName("neutralBtn")
         btn.clicked.connect(self.refresh_data)
         layout.addWidget(btn)
         self.setLayout(layout)
@@ -167,24 +226,64 @@ class PositionsTab(BaseTab):
         if not positions:
             self.table.setRowCount(0)
             self.table.setColumnCount(0)
+            self.net_pnl_label.setText("Net P&L: --")
+            self.unrealized_label.setText("Unrealized P&L: --")
             self.log("No open positions.", category="Info")
             return
+
         cols = ['tradingsymbol', 'quantity', 'average_price', 'last_price', 'pnl', 'unrealised']
         headers = ['Symbol', 'Qty', 'Avg Price', 'LTP', 'P&L', 'Unrealized']
         self.table.setRowCount(len(positions))
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
+
+        total_pnl = 0.0
+        total_unrealized = 0.0
         for i, pos in enumerate(positions):
+            pnl = pos.get('pnl', 0.0)
+            unrealised = pos.get('unrealised', 0.0)
+            total_pnl += pnl
+            total_unrealized += unrealised
+
             for j, key in enumerate(cols):
                 val = pos.get(key, 0)
                 if isinstance(val, float):
                     val = f"{val:.2f}"
                 item = QTableWidgetItem(str(val))
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+                # Color P&L and Unrealized columns (index 4 and 5)
+                if j == 4 or j == 5:
+                    num_val = float(val) if val != '--' else 0
+                    if num_val > 0:
+                        item.setForeground(Qt.GlobalColor.green)
+                    elif num_val < 0:
+                        item.setForeground(Qt.GlobalColor.red)
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+
                 self.table.setItem(i, j, item)
+
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        # Update summary cards
+        self._update_summary_card(self.net_pnl_label, "Net P&L", total_pnl)
+        self._update_summary_card(self.unrealized_label, "Unrealized P&L", total_unrealized)
+
         self.log(f"Positions refreshed. Count: {len(positions)}", category="Info")
+
+    def _update_summary_card(self, label, title, value):
+        value_rounded = round(value, 2)
+        text = f"{title}: ₹{value_rounded:,.2f}"
+        label.setText(text)
+        if value > 0:
+            label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #00e5a0;")
+        elif value < 0:
+            label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #ff4d6d;")
+        else:
+            label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #e0e0e0;")
 
 
 # ========== Open Orders Tab ==========
@@ -200,6 +299,7 @@ class OpenOrdersTab(BaseTab):
         self.table = QTableWidget()
         layout.addWidget(self.table)
         btn = QPushButton("Refresh Open Orders")
+        btn.setObjectName("neutralBtn")
         btn.clicked.connect(self.refresh_data)
         layout.addWidget(btn)
         self.setLayout(layout)
@@ -229,7 +329,7 @@ class OpenOrdersTab(BaseTab):
         self.log(f"Open orders refreshed. Count: {df.shape[0]}", category="Info")
 
 
-# ========== Funds Tab (simplified, horizontal layout) ==========
+# ========== Funds Tab ==========
 class FundsTab(BaseTab):
     def __init__(self, client, log_callback):
         super().__init__(log_callback)
@@ -239,7 +339,6 @@ class FundsTab(BaseTab):
 
     def init_ui(self):
         layout = QVBoxLayout()
-        # Horizontal layout for three cards
         card_layout = QHBoxLayout()
         card_layout.setSpacing(20)
 
@@ -283,6 +382,7 @@ class FundsTab(BaseTab):
         layout.addLayout(card_layout)
 
         btn_refresh = QPushButton("Refresh Funds")
+        btn_refresh.setObjectName("neutralBtn")
         btn_refresh.clicked.connect(self.refresh_data)
         layout.addWidget(btn_refresh)
         layout.addStretch()
@@ -300,20 +400,21 @@ class FundsTab(BaseTab):
         self.log("Funds updated.", category="Success")
 
 
-# ========== Order Placement Tab ==========
-class OrderPlacementTab(BaseTab):
-    def __init__(self, client, log_callback):
-        super().__init__(log_callback)
-        self.client = client
-        self.current_ltp = None
-        self.available_margin = 0.0
-        self.init_ui()
-        self.fetch_margin()
+# ========== Quick Order Dialog ==========
+class QuickOrderDialog(QDialog):
+    def __init__(self, client, log_callback, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Quick Order")
+        self.setModal(True)
+        self.setMinimumWidth(400)
 
-    class SelectOnFocusLineEdit(QLineEdit):
-        def focusInEvent(self, event):
-            super().focusInEvent(event)
-            self.selectAll()
+        self.client = client
+        self.log = log_callback
+        self.current_ltp = None
+        self.current_symbol = None
+        self.workers = []
+
+        self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -327,12 +428,398 @@ class OrderPlacementTab(BaseTab):
         completer = self.symbol_combo.completer()
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        line_edit = self.SelectOnFocusLineEdit()
-        self.symbol_combo.setLineEdit(line_edit)
+        self.symbol_combo.lineEdit().returnPressed.connect(self.fetch_ltp)
+        self.symbol_combo.currentTextChanged.connect(self.on_symbol_changed)
+        symbol_layout.addWidget(QLabel("Symbol:"), 1)
+        symbol_layout.addWidget(self.symbol_combo, 3)
+        self.fetch_ltp_btn = QPushButton("Fetch LTP")
+        self.fetch_ltp_btn.setObjectName("primaryBtn")
+        self.fetch_ltp_btn.clicked.connect(self.fetch_ltp)
+        symbol_layout.addWidget(self.fetch_ltp_btn)
+        layout.addLayout(symbol_layout)
+
+        # LTP display
+        self.ltp_label = QLabel("Last Traded Price: --")
+        self.ltp_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        layout.addWidget(self.ltp_label)
+
+        # Quantity
+        qty_layout = QHBoxLayout()
+        qty_layout.addWidget(QLabel("Quantity:"))
+        self.quantity_spin = QSpinBox()
+        self.quantity_spin.setRange(1, 10000)
+        qty_layout.addWidget(self.quantity_spin)
+        layout.addLayout(qty_layout)
+
+        # Buy / Sell buttons
+        btn_layout = QHBoxLayout()
+        self.buy_btn = QPushButton("BUY")
+        self.buy_btn.setObjectName("primaryBtn")
+        self.buy_btn.clicked.connect(lambda: self.place_order("BUY"))
+        self.sell_btn = QPushButton("SELL")
+        self.sell_btn.setObjectName("primaryBtn")
+        self.sell_btn.clicked.connect(lambda: self.place_order("SELL"))
+        btn_layout.addWidget(self.buy_btn)
+        btn_layout.addWidget(self.sell_btn)
+        layout.addLayout(btn_layout)
+
+        # Target / SL toggle
+        toggle_layout = QHBoxLayout()
+        self.target_radio = QRadioButton("Target (1%)")
+        self.sl_radio = QRadioButton("Stop Loss (1%)")
+        self.target_radio.setChecked(True)
+        toggle_layout.addWidget(self.target_radio)
+        toggle_layout.addWidget(self.sl_radio)
+        layout.addLayout(toggle_layout)
+
+        # Convert button
+        self.convert_btn = QPushButton("Convert Target ↔ SL")
+        self.convert_btn.setObjectName("neutralBtn")
+        self.convert_btn.clicked.connect(self.convert_target_sl)
+        layout.addWidget(self.convert_btn)
+
+        # Status label
+        self.status_label = QLabel("Ready")
+        layout.addWidget(self.status_label)
+
+        self.setLayout(layout)
+
+    def on_symbol_changed(self, text):
+        if text.strip():
+            self.fetch_ltp()
+
+    def fetch_ltp(self):
+        symbol = self.symbol_combo.currentText().strip().upper()
+        if not symbol:
+            QMessageBox.warning(self, "Input Error", "Please select a symbol.")
+            return
+        self.current_symbol = symbol
+        self.status_label.setText("Fetching LTP...")
+        self.fetch_ltp_btn.setEnabled(False)
+        self._run_worker(self.client.fetch_ltp, self.on_ltp_fetched, self.on_ltp_error, symbol)
+
+    def on_ltp_fetched(self, result):
+        ltp, error = result
+        self.fetch_ltp_btn.setEnabled(True)
+        if ltp:
+            self.current_ltp = ltp
+            self.ltp_label.setText(f"Last Traded Price: ₹{ltp:,.2f}")
+            self.status_label.setText("Ready")
+            self.log(f"Quick order LTP fetched: ₹{ltp:,.2f}", category="Info")
+        else:
+            self.status_label.setText(f"LTP fetch failed: {error}")
+            self.log(f"Quick order LTP error: {error}", category="Error", error=True)
+
+    def on_ltp_error(self, err):
+        self.fetch_ltp_btn.setEnabled(True)
+        self.status_label.setText(f"Error: {err}")
+        self.log(f"Quick order LTP error: {err}", category="Error", error=True)
+
+    def place_order(self, transaction_type):
+        if not self.current_symbol:
+            QMessageBox.warning(self, "Input Error", "Please select a symbol and fetch LTP.")
+            return
+        if self.current_ltp is None:
+            QMessageBox.warning(self, "LTP Missing", "Please fetch LTP first.")
+            return
+
+        quantity = self.quantity_spin.value()
+        is_target = self.target_radio.isChecked()
+        self.status_label.setText(f"Placing {transaction_type} market order...")
+        self.log(f"Quick order: Placing {transaction_type} market order for {quantity} {self.current_symbol}", category="Info")
+
+        # Use trading.market directly (compatible with existing client)
+        exchange = "NSE"
+        self._run_worker(
+            self.client.trading.market,
+            lambda res: self.on_main_order_placed(res, transaction_type, quantity, is_target),
+            lambda err: self.on_order_error(err),
+            self.current_symbol, transaction_type, quantity, exchange
+        )
+
+    def on_main_order_placed(self, result, transaction_type, quantity, is_target):
+        if result.get('status') != 'success':
+            self.status_label.setText("Order failed")
+            self.log(f"Quick order failed: {result.get('message', str(result))}", category="Error", error=True)
+            QMessageBox.warning(self, "Order Failed", result.get('message', str(result)))
+            return
+
+        order_id = result.get('data', {}).get('order_id', 'N/A')
+        self.status_label.setText(f"Main order placed. ID: {order_id}")
+        self.log(f"Quick order main {transaction_type} order placed. ID: {order_id}", category="Success")
+
+        # Fetch position to get average price
+        self._run_worker(
+            self.client.positions.get_net_positions,
+            lambda positions: self.place_target_sl_order(positions, transaction_type, quantity, is_target),
+            lambda err: self.log(f"Failed to fetch position: {err}", category="Error", error=True)
+        )
+
+    def place_target_sl_order(self, positions, transaction_type, quantity, is_target):
+        # Find position for current symbol
+        pos = None
+        for p in positions:
+            if p.get('tradingsymbol') == self.current_symbol:
+                pos = p
+                break
+        if not pos or pos.get('quantity', 0) == 0:
+            self.status_label.setText("No open position found for target/SL order")
+            self.log("No open position found after main order", category="Warning")
+            return
+
+        avg_price = pos.get('average_price', 0.0)
+        if avg_price <= 0:
+            self.status_label.setText("Invalid average price")
+            return
+
+        # Determine order type and price for target/SL
+        if transaction_type == "BUY":
+            exit_transaction = "SELL"
+            if is_target:
+                order_type_api = "LIMIT"
+                price = avg_price * 1.01
+                trigger_price = 0
+                order_desc = "Target"
+            else:
+                order_type_api = "SL"
+                price = avg_price * 0.99
+                trigger_price = avg_price * 0.99
+                order_desc = "Stop Loss"
+        else:  # SELL
+            exit_transaction = "BUY"
+            if is_target:
+                order_type_api = "LIMIT"
+                price = avg_price * 0.99
+                trigger_price = 0
+                order_desc = "Target"
+            else:
+                order_type_api = "SL"
+                price = avg_price * 1.01
+                trigger_price = avg_price * 1.01
+                order_desc = "Stop Loss"
+
+        payload = {
+            'exchange': "NSE",
+            'tradingsymbol': self.current_symbol,
+            'transaction_type': exit_transaction,
+            'quantity': quantity,
+            'product': "MIS",
+            'validity': "DAY",
+            'variety': "regular",
+            'order_type': order_type_api,
+            'price': price,
+            'trigger_price': trigger_price,
+            'user_id': self.client.trading.user_id
+        }
+
+        self.status_label.setText(f"Placing {order_desc} order...")
+        self.log(f"Placing {order_desc} order: {payload}", category="Info")
+        self._run_worker(
+            self.client.trading._place_order,
+            lambda res: self.on_target_sl_placed(res, order_desc),
+            lambda err: self.on_order_error(err),
+            "regular", payload
+        )
+
+    def on_target_sl_placed(self, result, order_desc):
+        if result.get('status') == 'success':
+            oid = result.get('data', {}).get('order_id', 'N/A')
+            self.status_label.setText(f"{order_desc} order placed. ID: {oid}")
+            self.log(f"Quick order {order_desc} placed. ID: {oid}", category="Success")
+        else:
+            error_msg = result.get('message', str(result))
+            self.status_label.setText(f"{order_desc} order failed: {error_msg[:50]}")
+            self.log(f"Quick order {order_desc} failed: {error_msg}", category="Error", error=True)
+
+    def on_order_error(self, err):
+        self.status_label.setText(f"Error: {err}")
+        self.log(f"Quick order error: {err}", category="Error", error=True)
+
+    def convert_target_sl(self):
+        if not self.current_symbol:
+            QMessageBox.warning(self, "Input Error", "Please select a symbol first.")
+            return
+
+        self.status_label.setText("Fetching open orders for conversion...")
+        self._run_worker(
+            self.client.orders.get_all_orders,
+            self.do_convert,
+            lambda err: self.on_order_error(err)
+        )
+
+    def do_convert(self, orders):
+        open_statuses = ['OPEN', 'TRIGGER PENDING', 'PENDING']
+        symbol_orders = [o for o in orders if o.get('tradingsymbol') == self.current_symbol and o.get('status') in open_statuses]
+        target_order = None
+        sl_order = None
+        for o in symbol_orders:
+            otype = o.get('order_type')
+            if otype == 'LIMIT':
+                target_order = o
+            elif otype == 'SL':
+                sl_order = o
+
+        if not target_order and not sl_order:
+            self.status_label.setText("No open target or SL order found for this symbol.")
+            self.log("No open target/SL order to convert", category="Warning")
+            return
+
+        if target_order:
+            self.log(f"Cancelling target order {target_order['order_id']} for {self.current_symbol}", category="Info")
+            self._run_worker(
+                self.client.orders.cancel_order,
+                lambda res: self.after_cancel_place_sl(res),
+                lambda err: self.on_order_error(err),
+                target_order['order_id'], target_order.get('variety', 'regular')
+            )
+        elif sl_order:
+            self.log(f"Cancelling SL order {sl_order['order_id']} for {self.current_symbol}", category="Info")
+            self._run_worker(
+                self.client.orders.cancel_order,
+                lambda res: self.after_cancel_place_target(res),
+                lambda err: self.on_order_error(err),
+                sl_order['order_id'], sl_order.get('variety', 'regular')
+            )
+
+    def after_cancel_place_sl(self, cancel_result):
+        if cancel_result.get('status') != 'success':
+            self.status_label.setText("Cancel failed")
+            return
+        self._run_worker(
+            self.client.positions.get_net_positions,
+            self.place_sl_from_position,
+            lambda err: self.on_order_error(err)
+        )
+
+    def place_sl_from_position(self, positions):
+        pos = None
+        for p in positions:
+            if p.get('tradingsymbol') == self.current_symbol and p.get('quantity', 0) != 0:
+                pos = p
+                break
+        if not pos:
+            self.status_label.setText("No open position found for SL")
+            return
+        avg_price = pos.get('average_price', 0.0)
+        quantity = abs(pos.get('quantity', 0))
+        transaction_type = "SELL" if pos.get('quantity') > 0 else "BUY"
+        if transaction_type == "SELL":
+            order_type_api = "SL"
+            price = avg_price * 0.99
+            trigger_price = avg_price * 0.99
+        else:
+            order_type_api = "SL"
+            price = avg_price * 1.01
+            trigger_price = avg_price * 1.01
+        payload = {
+            'exchange': "NSE",
+            'tradingsymbol': self.current_symbol,
+            'transaction_type': transaction_type,
+            'quantity': quantity,
+            'product': "MIS",
+            'validity': "DAY",
+            'variety': "regular",
+            'order_type': order_type_api,
+            'price': price,
+            'trigger_price': trigger_price,
+            'user_id': self.client.trading.user_id
+        }
+        self._run_worker(
+            self.client.trading._place_order,
+            lambda res: self.on_target_sl_placed(res, "Stop Loss"),
+            lambda err: self.on_order_error(err),
+            "regular", payload
+        )
+
+    def after_cancel_place_target(self, cancel_result):
+        if cancel_result.get('status') != 'success':
+            self.status_label.setText("Cancel failed")
+            return
+        self._run_worker(
+            self.client.positions.get_net_positions,
+            self.place_target_from_position,
+            lambda err: self.on_order_error(err)
+        )
+
+    def place_target_from_position(self, positions):
+        pos = None
+        for p in positions:
+            if p.get('tradingsymbol') == self.current_symbol and p.get('quantity', 0) != 0:
+                pos = p
+                break
+        if not pos:
+            self.status_label.setText("No open position found for target")
+            return
+        avg_price = pos.get('average_price', 0.0)
+        quantity = abs(pos.get('quantity', 0))
+        transaction_type = "SELL" if pos.get('quantity') > 0 else "BUY"
+        if transaction_type == "SELL":
+            price = avg_price * 1.01
+        else:
+            price = avg_price * 0.99
+        payload = {
+            'exchange': "NSE",
+            'tradingsymbol': self.current_symbol,
+            'transaction_type': transaction_type,
+            'quantity': quantity,
+            'product': "MIS",
+            'validity': "DAY",
+            'variety': "regular",
+            'order_type': "LIMIT",
+            'price': price,
+            'trigger_price': 0,
+            'user_id': self.client.trading.user_id
+        }
+        self._run_worker(
+            self.client.trading._place_order,
+            lambda res: self.on_target_sl_placed(res, "Target"),
+            lambda err: self.on_order_error(err),
+            "regular", payload
+        )
+
+    def _run_worker(self, func, finished_callback, error_callback, *args, **kwargs):
+        worker = ApiWorker(func, *args, **kwargs)
+        worker.finished.connect(finished_callback)
+        worker.error.connect(error_callback)
+        worker.start()
+        self.workers.append(worker)
+        worker.finished.connect(lambda: self.workers.remove(worker))
+        worker.error.connect(lambda: self.workers.remove(worker))
+
+
+# ========== Order Placement Tab ==========
+class OrderPlacementTab(BaseTab):
+    def __init__(self, client, log_callback):
+        super().__init__(log_callback)
+        self.client = client
+        self.current_ltp = None
+        self.available_margin = 0.0
+        self.init_ui()
+        self.fetch_margin()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        # Quick Order button
+        quick_btn = QPushButton("Quick Order")
+        quick_btn.setObjectName("primaryBtn")
+        quick_btn.clicked.connect(self.open_quick_order)
+        layout.addWidget(quick_btn)
+
+        # Symbol selection
+        symbol_layout = QHBoxLayout()
+        self.symbol_combo = QComboBox()
+        self.symbol_combo.setEditable(True)
+        self.symbol_combo.addItems(self.client.symbols)
+        self.symbol_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        completer = self.symbol_combo.completer()
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self.symbol_combo.lineEdit().returnPressed.connect(self.fetch_ltp)
         symbol_layout.addWidget(QLabel("Symbol:"), 1)
         symbol_layout.addWidget(self.symbol_combo, 3)
         self.fetch_ltp_btn = QPushButton("Fetch LTP")
+        self.fetch_ltp_btn.setObjectName("primaryBtn")
         self.fetch_ltp_btn.clicked.connect(self.fetch_ltp)
         symbol_layout.addWidget(self.fetch_ltp_btn)
         layout.addLayout(symbol_layout)
@@ -348,6 +835,7 @@ class OrderPlacementTab(BaseTab):
         self.available_margin_label.setStyleSheet("font-weight: bold; color: #00e5a0; background-color: #111318; padding: 5px; border-radius: 5px;")
         margin_layout.addWidget(self.available_margin_label)
         self.refresh_margin_btn = QPushButton("Refresh Margin")
+        self.refresh_margin_btn.setObjectName("neutralBtn")
         self.refresh_margin_btn.clicked.connect(self.fetch_margin)
         margin_layout.addWidget(self.refresh_margin_btn)
         layout.addLayout(margin_layout)
@@ -371,8 +859,10 @@ class OrderPlacementTab(BaseTab):
         # Cancel buttons row
         cancel_layout = QHBoxLayout()
         self.cancel_last_btn = QPushButton("Cancel Last Pending Order")
+        self.cancel_last_btn.setObjectName("dangerBtn")
         self.cancel_last_btn.clicked.connect(self.cancel_last_pending_order)
         self.cancel_all_btn = QPushButton("Cancel All Open Orders")
+        self.cancel_all_btn.setObjectName("dangerBtn")
         self.cancel_all_btn.clicked.connect(self.cancel_all_open_orders)
         cancel_layout.addWidget(self.cancel_last_btn)
         cancel_layout.addWidget(self.cancel_all_btn)
@@ -436,6 +926,7 @@ class OrderPlacementTab(BaseTab):
         order_layout.addRow("Trigger Price (₹):", self.trigger_spin)
 
         self.place_btn = QPushButton("Place Order")
+        self.place_btn.setObjectName("primaryBtn")
         self.place_btn.clicked.connect(self.place_order)
         order_layout.addRow(self.place_btn)
 
@@ -447,10 +938,9 @@ class OrderPlacementTab(BaseTab):
         layout.addStretch()
         self.setLayout(layout)
 
-    # def eventFilter(self, obj, event):
-    #     if obj == self.symbol_combo.lineEdit() and event.type() == QEvent.Type.FocusIn:
-    #         obj.selectAll()
-    #     return super().eventFilter(obj, event)
+    def open_quick_order(self):
+        dialog = QuickOrderDialog(self.client, self.log, self)
+        dialog.exec()
 
     def on_order_type_changed(self, text):
         is_limit = text in ["LIMIT", "COVER LIMIT"]
@@ -606,21 +1096,23 @@ class OrderPlacementTab(BaseTab):
     def order_placed(self, result, success):
         self.place_btn.setEnabled(True)
         if success:
-            oid = result.get('data', {}).get('order_id', 'N/A')
-            self.status_label.setText(f"Order placed! Order ID: {oid}")
-            self.log(f"✅ Order placed successfully. Order ID: {oid}", category="Success")
-            QMessageBox.information(self, "Success", f"Order placed successfully.\nOrder ID: {oid}")
+            # result is the JSON response from _place_order (already a dict)
+            if isinstance(result, dict) and result.get('status') == 'success':
+                oid = result.get('data', {}).get('order_id', 'N/A')
+                self.status_label.setText(f"Order placed! Order ID: {oid}")
+                self.log(f"✅ Order placed successfully. Order ID: {oid}", category="Success")
+                QMessageBox.information(self, "Success", f"Order placed successfully.\nOrder ID: {oid}")
+            else:
+                # result might be an error dict with 'message'
+                error_msg = result.get('message', str(result))
+                self.status_label.setText(f"Order failed: {error_msg[:100]}")
+                self.log(f"❌ Order failed: {error_msg}", category="Error", error=True)
+                QMessageBox.critical(self, "Order Failed", error_msg)
         else:
-            error_msg = str(result)
-            if hasattr(result, 'response') and result.response is not None:
-                try:
-                    error_json = result.response.json()
-                    error_msg = error_json.get('message', error_json.get('error', str(result)))
-                except:
-                    error_msg = result.response.text if result.response else error_msg
-            self.status_label.setText(f"Order failed: {error_msg[:100]}")
-            self.log(f"❌ Order failed: {error_msg}", category="Error", error=True)
-            QMessageBox.critical(self, "Order Failed", error_msg)
+            # result is the error string from worker
+            self.status_label.setText(f"Order failed: {str(result)[:100]}")
+            self.log(f"❌ Order failed: {str(result)}", category="Error", error=True)
+            QMessageBox.critical(self, "Order Failed", str(result))
 
     def cancel_last_pending_order(self):
         self.log("Fetching open orders to cancel last pending...", category="Info")
@@ -687,11 +1179,13 @@ class OrderPlacementTab(BaseTab):
 
 # ========== Main Dashboard ==========
 class ZerodhaDashboard(QMainWindow):
-
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Zerodha Trading Dashboard")
         self.setGeometry(100, 100, 1300, 800)
+
+        # Load external QSS file if exists
+        self.load_stylesheet()
 
         self.client = ZerodhaClient()
         self.log_entries = []
@@ -707,7 +1201,7 @@ class ZerodhaDashboard(QMainWindow):
         main_layout = QHBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # ========== FIRST CREATE LOG CONTAINER (so self.log_text exists) ==========
+        # RIGHT SIDE: LOG CONTAINER (square, top-aligned)
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -718,7 +1212,6 @@ class ZerodhaDashboard(QMainWindow):
         log_layout = QVBoxLayout(self.log_container)
         log_layout.setContentsMargins(5, 5, 5, 5)
 
-        # Filter checkboxes
         filter_layout = QHBoxLayout()
         self.chk_error = QCheckBox("Error")
         self.chk_info = QCheckBox("Info")
@@ -739,16 +1232,15 @@ class ZerodhaDashboard(QMainWindow):
         filter_layout.addStretch()
         log_layout.addLayout(filter_layout)
 
-        # Log text area
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setStyleSheet("font-family: monospace; font-size: 10pt; background-color: #1e1e1e; color: #d4d4d4;")
+        self.log_text.setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: monospace; font-size: 10pt;")
         log_layout.addWidget(self.log_text)
 
         right_layout.addWidget(self.log_container)
         right_layout.addStretch()
 
-        # ========== NOW CREATE TABS (after log_text exists) ==========
+        # LEFT SIDE: TABS
         self.tabs = QTabWidget()
         self.holdings_tab = HoldingsTab(self.client, self.add_log_entry)
         self.positions_tab = PositionsTab(self.client, self.add_log_entry)
@@ -764,22 +1256,28 @@ class ZerodhaDashboard(QMainWindow):
 
         self.tabs.currentChanged.connect(self.on_tab_changed)
 
-        # Add to main layout
-        main_layout.addWidget(self.tabs, 4)          # 80% width
-        main_layout.addLayout(right_layout, 1)       # 20% width
+        main_layout.addWidget(self.tabs, 4)
+        main_layout.addLayout(right_layout, 1)
 
-        # Set default active tab to Place Order (index 4)
         self.tabs.setCurrentIndex(4)
 
         self.add_log_entry("Dashboard initialized. Ready.", category="Info")
         self.statusBar().showMessage("Ready")
+
+    def load_stylesheet(self):
+        qss_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "style.qss")
+        if os.path.exists(qss_file):
+            with open(qss_file, "r") as f:
+                self.setStyleSheet(f.read())
+        else:
+            print(f"Warning: {qss_file} not found. Using default style.")
+
     def resizeEvent(self, event):
-        """Keep log container square (width = height) and place at top-right."""
         size = self.width()
         if hasattr(self, 'log_container'):
             width = int(size * 0.2)
             self.log_container.setFixedWidth(width)
-            self.log_container.setFixedHeight(width)   # square
+            self.log_container.setFixedHeight(width)
         super().resizeEvent(event)
 
     def on_tab_changed(self, index):
@@ -792,7 +1290,6 @@ class ZerodhaDashboard(QMainWindow):
             self.open_orders_tab.refresh_data()
         elif tab_name == "Funds":
             self.funds_tab.refresh_data()
-        # "Place Order" tab does not auto-refresh
 
     def add_log_entry(self, message, category="Info", error=False):
         if error and category == "Info":

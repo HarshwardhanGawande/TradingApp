@@ -286,15 +286,26 @@ class ZerodhaIntraday(ZerodhaBase):
         self.test_validity()
 
     def _place_order(self, variety: str, payload: dict) -> dict:
+        """Place order, return dict with 'status' and 'data' or 'message'."""
         if self.user_id:
             payload['user_id'] = self.user_id
         print(f"DEBUG: Sending order to {self.ORDER_URL}/{variety}")
         print(f"DEBUG: Payload = {payload}")
-        response = self.session.post(f'{self.ORDER_URL}/{variety}', data=payload)
-        print(f"DEBUG: Response status = {response.status_code}")
-        print(f"DEBUG: Response text = {response.text}")
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = self.session.post(f'{self.ORDER_URL}/{variety}', data=payload)
+            print(f"DEBUG: Response status = {response.status_code}")
+            print(f"DEBUG: Response text = {response.text}")
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            # Return a structured error dict
+            error_msg = str(e)
+            try:
+                error_json = response.json()
+                error_msg = error_json.get('message', error_json.get('error', str(e)))
+            except:
+                pass
+            return {"status": "error", "message": error_msg, "data": None}
 
     def _base_payload(self, tradingsymbol, exchange, transaction_type, quantity):
         return {
@@ -477,3 +488,9 @@ class ZerodhaClient:
 
     def amo_limit(self, symbol, transaction_type, quantity, price, exchange='NSE'):
         return self.trading.amo_limit(symbol, transaction_type, quantity, price, exchange)
+
+    def buy_market(self, symbol, quantity, exchange='NSE'):
+        return self.trading.market(symbol, 'BUY', quantity, exchange)
+
+    def sell_market(self, symbol, quantity, exchange='NSE'):
+        return self.trading.market(symbol, 'SELL', quantity, exchange)
