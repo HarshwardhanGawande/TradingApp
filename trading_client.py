@@ -33,6 +33,8 @@ TOKEN_CSV = r"C:\Users\harsh\Dropbox\Trading_2026\Latest_Dashboard\symbol_data\t
 # ─── Base Class ───────────────────────────────────────────────────────────────
 
 class ZerodhaBase:
+    _token_validated = False   # class-level flag to avoid repeated checks
+
     def __init__(self):
         global ENCTOKEN
         self.user_id = USER_ID
@@ -62,11 +64,48 @@ class ZerodhaBase:
         except Exception as e:
             print(f'⚠ Warning: Could not save enctoken: {e}')
 
+    def _validate_token(self, token: str) -> bool:
+        """Test if a given token is valid by calling a simple API."""
+        test_session = requests.Session()
+        test_session.headers.update({'authorization': f'enctoken {token}'})
+        try:
+            resp = test_session.get(
+                url=HIST_URL.format(instrument_id=86529, interval='minute'),
+                params={'user_id': self.user_id, 'oi': '1',
+                        'from': '2026-03-25', 'to': '2026-03-25'},
+                timeout=10
+            )
+            return resp.status_code == 200
+        except:
+            return False
+
     def _login(self):
         global ENCTOKEN
         print("\n" + "="*50)
         print("LOGIN REQUIRED - Token expired or invalid")
         print("="*50)
+
+        # --- Step 0: Ask for existing token (optional) ---
+        print("\n💡 If you have an existing ENCTOKEN from another session, paste it here and press Enter.")
+        print("   Otherwise, just press Enter to continue with normal login (password + 2FA).")
+        existing_token = input("Paste ENCTOKEN (or press Enter): ").strip()
+
+        if existing_token:
+            print("🔍 Validating provided token...")
+            if self._validate_token(existing_token):
+                print("✓ Token is valid. Saving to .env and continuing...")
+                self.enctoken = existing_token
+                ENCTOKEN = existing_token
+                self._save_enctoken(existing_token)
+                self._set_headers()
+                ZerodhaBase._token_validated = True
+                print("✓ Login completed using provided token.")
+                print("="*50 + "\n")
+                return
+            else:
+                print("❌ Provided token is invalid. Falling back to normal login.\n")
+
+        # --- Normal login with password and 2FA ---
         print(f"Logging in as: {self.user_id}")
         r = self.session.post(LOGIN_URL, data={
             'user_id': self.user_id,
@@ -107,14 +146,21 @@ class ZerodhaBase:
         print(f"✓ New ENCTOKEN generated: {self.enctoken[:20]}...")
         self._save_enctoken(self.enctoken)
         self._set_headers()
+        ZerodhaBase._token_validated = True
         print("✓ Login completed successfully!")
         print("="*50 + "\n")
 
     def test_validity(self):
+        """Check token validity only once per process."""
+        if ZerodhaBase._token_validated:
+            return True
+
         if not self.enctoken:
             print("⚠ No enctoken found. Logging in...")
             self._login()
-            return
+            ZerodhaBase._token_validated = True
+            return True
+
         print(f'🔍 Checking token validity...')
         try:
             resp = self.session.get(
@@ -125,17 +171,20 @@ class ZerodhaBase:
             )
             if resp.status_code == 200:
                 print('✓ Token is valid.')
+                ZerodhaBase._token_validated = True
                 return True
             else:
                 error_msg = resp.json().get('message', 'Unknown error') if resp.text else 'No response'
                 print(f"⚠ Token expired/invalid: {error_msg}")
                 print("🔄 Logging in...")
                 self._login()
+                ZerodhaBase._token_validated = True
                 return True
         except Exception as e:
             print(f"⚠ Token validation error: {e}")
             print("🔄 Attempting login...")
             self._login()
+            ZerodhaBase._token_validated = True
             return True
 
 
