@@ -81,9 +81,10 @@ class HoldingsTab(BaseTab):
         self.current_value_label = QLabel("Current Value: --")
         self.day_pnl_label = QLabel("Day's P&L: --")
         self.total_pnl_label = QLabel("Total P&L: --")
+        default_style = "font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #e0e0e0;"
         for label in [self.total_invested_label, self.current_value_label,
                       self.day_pnl_label, self.total_pnl_label]:
-            label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px;")
+            label.setStyleSheet(default_style)
             summary_layout.addWidget(label)
         layout.addLayout(summary_layout)
 
@@ -150,8 +151,17 @@ class HoldingsTab(BaseTab):
             total_current = sum(h['last_price'] * h['quantity'] for h in holdings)
             day_pnl, total_pnl = self.client.get_holdings_summary()
 
+            # Total Invested (always default color)
             self.total_invested_label.setText(f"Total Invested: ₹{total_invested:,.2f}")
-            self.current_value_label.setText(f"Current Value: ₹{total_current:,.2f}")
+            self.total_invested_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #e0e0e0;")
+
+            # Current Value – green if > total_invested, else default
+            if total_current > total_invested:
+                self.current_value_label.setText(f"Current Value: ₹{total_current:,.2f} ▲")
+                self.current_value_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #00aa55;")
+            else:
+                self.current_value_label.setText(f"Current Value: ₹{total_current:,.2f}")
+                self.current_value_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px; background-color: #111318; border-radius: 5px; color: #e0e0e0;")
 
             # Day's P&L
             day_pnl_rounded = round(day_pnl, 2)
@@ -180,7 +190,6 @@ class HoldingsTab(BaseTab):
             self.log(f"Holdings refreshed. Total P&L: ₹{total_pnl:,.2f}", category="Success")
         except Exception as e:
             self.log(f"Summary error: {e}", category="Error", error=True)
-
 
 # ========== Positions Tab ==========
 class PositionsTab(BaseTab):
@@ -281,7 +290,7 @@ class PositionsTab(BaseTab):
 
 
 # ========== Open Orders Tab ==========
-class OpenOrdersTab(BaseTab):
+class OrdersTab(BaseTab):
     def __init__(self, client, log_callback):
         super().__init__(log_callback)
         self.client = client
@@ -290,38 +299,147 @@ class OpenOrdersTab(BaseTab):
 
     def init_ui(self):
         layout = QVBoxLayout()
+
+        # Filter row: checkboxes
+        filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(15)
+
+        # Status filters
+        self.chk_open = QCheckBox("Open")
+        self.chk_complete = QCheckBox("Complete")
+        self.chk_cancelled = QCheckBox("Cancelled")
+        self.chk_rejected = QCheckBox("Rejected")
+        self.chk_open.setChecked(True)   # default: open orders visible
+        self.chk_complete.setChecked(False)
+        self.chk_cancelled.setChecked(False)
+        self.chk_rejected.setChecked(False)
+
+        filter_layout.addWidget(QLabel("Status:"))
+        filter_layout.addWidget(self.chk_open)
+        filter_layout.addWidget(self.chk_complete)
+        filter_layout.addWidget(self.chk_cancelled)
+        filter_layout.addWidget(self.chk_rejected)
+
+        # Transaction type filters
+        self.chk_buy = QCheckBox("Buy")
+        self.chk_sell = QCheckBox("Sell")
+        self.chk_buy.setChecked(True)
+        self.chk_sell.setChecked(True)
+        filter_layout.addWidget(QLabel("Type:"))
+        filter_layout.addWidget(self.chk_buy)
+        filter_layout.addWidget(self.chk_sell)
+
+        # Product filters
+        self.chk_mis = QCheckBox("MIS")
+        self.chk_cnc = QCheckBox("Investment (CNC)")
+        self.chk_mis.setChecked(True)      # default: MIS visible
+        self.chk_cnc.setChecked(False)
+        filter_layout.addWidget(QLabel("Product:"))
+        filter_layout.addWidget(self.chk_mis)
+        filter_layout.addWidget(self.chk_cnc)
+
+        filter_layout.addStretch()
+        layout.addLayout(filter_layout)
+
+        # Connect filter checkboxes to refresh
+        for cb in [self.chk_open, self.chk_complete, self.chk_cancelled, self.chk_rejected,
+                   self.chk_buy, self.chk_sell, self.chk_mis, self.chk_cnc]:
+            cb.stateChanged.connect(self.refresh_data)
+
+        # Orders table
         self.table = QTableWidget()
+        self.table.setAlternatingRowColors(True)
+        self.table.setSortingEnabled(True)
         layout.addWidget(self.table)
-        btn = QPushButton("Refresh Open Orders")
-        btn.setObjectName("neutralBtn")
-        btn.clicked.connect(self.refresh_data)
-        layout.addWidget(btn)
+
+        btn_refresh = QPushButton("Refresh Orders")
+        btn_refresh.setObjectName("neutralBtn")
+        btn_refresh.clicked.connect(self.refresh_data)
+        layout.addWidget(btn_refresh)
+
         self.setLayout(layout)
 
     def refresh_data(self):
-        self.log("Fetching open orders...", category="Info")
-        self._run_worker(self.client.get_open_orders, self.update_table,
+        self.log("Fetching all orders...", category="Info")
+        self._run_worker(self.client.orders.get_all_orders, self.update_table,
                          lambda err: self.log(f"Error: {err}", category="Error", error=True))
 
-    def update_table(self, df: pd.DataFrame):
-        if df.empty:
+    def update_table(self, orders):
+        if not orders:
             self.table.setRowCount(0)
             self.table.setColumnCount(0)
-            self.log("No open orders.", category="Info")
+            self.log("No orders found.", category="Info")
             return
-        self.table.setRowCount(df.shape[0])
-        self.table.setColumnCount(df.shape[1])
-        self.table.setHorizontalHeaderLabels(df.columns)
-        for i, row in df.iterrows():
-            for j, val in enumerate(row):
+
+        # Apply filters
+        filtered = []
+        for o in orders:
+            status = o.get('status', '')
+            trans_type = o.get('transaction_type', '')
+            product = o.get('product', '')
+
+            # Status filter
+            if status == 'OPEN' or status == 'TRIGGER PENDING' or status == 'PENDING' or status == 'AMO REQ RECEIVED':
+                if not self.chk_open.isChecked():
+                    continue
+            elif status == 'COMPLETE':
+                if not self.chk_complete.isChecked():
+                    continue
+            elif status == 'CANCELLED' or status == 'CANCELLED AMO':
+                if not self.chk_cancelled.isChecked():
+                    continue
+            elif status == 'REJECTED':
+                if not self.chk_rejected.isChecked():
+                    continue
+            else:
+                # unknown status – include only if any filter is active? Better to skip.
+                continue
+
+            # Transaction type filter
+            if trans_type == 'BUY' and not self.chk_buy.isChecked():
+                continue
+            if trans_type == 'SELL' and not self.chk_sell.isChecked():
+                continue
+
+            # Product filter
+            if product == 'MIS' and not self.chk_mis.isChecked():
+                continue
+            if product == 'CNC' and not self.chk_cnc.isChecked():
+                continue
+
+            filtered.append(o)
+
+        if not filtered:
+            self.table.setRowCount(0)
+            self.table.setColumnCount(0)
+            self.log("No orders match current filters.", category="Info")
+            return
+
+        # Define columns to display
+        cols = ['order_id', 'order_timestamp', 'tradingsymbol', 'transaction_type', 'order_type',
+                'quantity', 'filled_quantity', 'price', 'average_price', 'status', 'product']
+        headers = ['Order ID', 'Time', 'Symbol', 'Type', 'Order Type', 'Qty', 'Filled', 'Price', 'Avg Price', 'Status', 'Product']
+
+        # Sort by timestamp descending (latest first)
+        filtered.sort(key=lambda x: x.get('order_timestamp', ''), reverse=True)
+
+        self.table.setRowCount(len(filtered))
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
+
+        for i, order in enumerate(filtered):
+            for j, key in enumerate(cols):
+                val = order.get(key, '')
+                if isinstance(val, float):
+                    val = f"{val:.2f}"
                 item = QTableWidgetItem(str(val))
-                if j not in [1, 2, 7]:
+                if j not in [0, 2, 3, 4, 9, 10]:  # align numbers right
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.table.setItem(i, j, item)
+
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.log(f"Open orders refreshed. Count: {df.shape[0]}", category="Info")
-
+        self.log(f"Orders refreshed. Total: {len(filtered)}", category="Info")
 
 # ========== Funds Tab ==========
 class FundsTab(BaseTab):
@@ -563,7 +681,6 @@ class QuickOrderDialog(QDialog):
         self.setLayout(layout)
 
     def toggle_main_window(self):
-        # Find the main ZerodhaDashboard window by traversing parents
         main_window = self.parent()
         while main_window and not isinstance(main_window, ZerodhaDashboard):
             main_window = main_window.parent()
@@ -572,13 +689,11 @@ class QuickOrderDialog(QDialog):
                 main_window.showNormal()
                 main_window.raise_()
                 self.toggle_main_btn.setText("Minimize Main Window")
-                # Remove stay-on-top flag
                 self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowStaysOnTopHint)
                 self.show()
             else:
                 main_window.showMinimized()
                 self.toggle_main_btn.setText("Restore Main Window")
-                # Keep this dialog on top
                 self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
                 self.show()
 
@@ -627,46 +742,85 @@ class QuickOrderDialog(QDialog):
         self.log(f"Quick order: Placing {transaction_type} market order for {quantity} {self.current_symbol}", category="Info")
 
         exchange = "NSE"
+        # Use the client's buy_market/sell_market shortcuts
+        if transaction_type == "BUY":
+            func = self.client.buy_market
+            args = (self.current_symbol, quantity, exchange)
+        else:
+            func = self.client.sell_market
+            args = (self.current_symbol, quantity, exchange)
+
         self._run_worker(
-            self.client.trading.market,
+            func,
             lambda res: self.on_main_order_placed(res, transaction_type, quantity, is_target),
             lambda err: self.on_order_error(err),
-            self.current_symbol, transaction_type, quantity, exchange
+            *args
         )
 
     def on_main_order_placed(self, result, transaction_type, quantity, is_target):
+        # Check if order was successful
         if result.get('status') != 'success':
-            self.status_label.setText("Order failed")
-            self.log(f"Quick order failed: {result.get('message', str(result))}", category="Error", error=True)
-            QMessageBox.warning(self, "Order Failed", result.get('message', str(result)))
+            error_msg = result.get('message', str(result))
+            self.status_label.setText(f"Order failed: {error_msg[:50]}")
+            self.log(f"Quick order failed: {error_msg}", category="Error", error=True)
+            QMessageBox.warning(self, "Order Failed", error_msg)
             return
 
         order_id = result.get('data', {}).get('order_id', 'N/A')
         self.status_label.setText(f"Main order placed. ID: {order_id}")
         self.log(f"Quick order main {transaction_type} order placed. ID: {order_id}", category="Success")
 
+        # Wait a bit for the order to be filled and position to appear, then fetch position with retry
+        self.retry_count = 0
+        self.fetch_position_with_retry(transaction_type, quantity, is_target)
+
+    def fetch_position_with_retry(self, transaction_type, quantity, is_target, delay=1000):
+        """Retry fetching position up to 5 times with increasing delay."""
         self._run_worker(
             self.client.positions.get_net_positions,
-            lambda positions: self.place_target_sl_order(positions, transaction_type, quantity, is_target),
-            lambda err: self.log(f"Failed to fetch position: {err}", category="Error", error=True)
+            lambda positions: self.on_positions_fetched(positions, transaction_type, quantity, is_target, delay),
+            lambda err: self.on_position_fetch_error(err, transaction_type, quantity, is_target, delay)
         )
 
-    def place_target_sl_order(self, positions, transaction_type, quantity, is_target):
+    def on_positions_fetched(self, positions, transaction_type, quantity, is_target, delay):
+        # Find position for current symbol
         pos = None
         for p in positions:
-            if p.get('tradingsymbol') == self.current_symbol:
+            if p.get('tradingsymbol') == self.current_symbol and p.get('quantity', 0) != 0:
                 pos = p
                 break
-        if not pos or pos.get('quantity', 0) == 0:
-            self.status_label.setText("No open position found for target/SL order")
-            self.log("No open position found after main order", category="Warning")
-            return
+
+        if not pos:
+            # Retry up to 5 times
+            if self.retry_count < 5:
+                self.retry_count += 1
+                self.log(f"Position not yet updated, retry {self.retry_count}/5...", category="Info")
+                QTimer.singleShot(delay, lambda: self.fetch_position_with_retry(transaction_type, quantity, is_target, delay + 500))
+                return
+            else:
+                self.status_label.setText("Position not found after 5 retries")
+                self.log("Could not find open position to place target/SL order", category="Error", error=True)
+                return
 
         avg_price = pos.get('average_price', 0.0)
         if avg_price <= 0:
             self.status_label.setText("Invalid average price")
+            self.log(f"Invalid average price: {avg_price}", category="Error", error=True)
             return
 
+        # Now place target/SL order
+        self.place_target_sl_order(avg_price, transaction_type, quantity, is_target)
+
+    def on_position_fetch_error(self, err, transaction_type, quantity, is_target, delay):
+        if self.retry_count < 5:
+            self.retry_count += 1
+            self.log(f"Position fetch error, retry {self.retry_count}/5...", category="Warning")
+            QTimer.singleShot(delay, lambda: self.fetch_position_with_retry(transaction_type, quantity, is_target, delay + 500))
+        else:
+            self.log(f"Failed to fetch position after 5 retries: {err}", category="Error", error=True)
+            self.status_label.setText("Position fetch failed")
+
+    def place_target_sl_order(self, avg_price, transaction_type, quantity, is_target):
         percent = self.percent_spin.value() / 100.0
         multiplier_up = 1.0 + percent
         multiplier_down = 1.0 - percent
@@ -683,7 +837,7 @@ class QuickOrderDialog(QDialog):
                 price = avg_price * multiplier_down
                 trigger_price = price
                 order_desc = "Stop Loss"
-        else:
+        else:  # SELL
             exit_transaction = "BUY"
             if is_target:
                 order_type_api = "LIMIT"
@@ -892,6 +1046,8 @@ class QuickOrderDialog(QDialog):
         worker.finished.connect(finished_callback)
         worker.error.connect(error_callback)
         worker.start()
+        if not hasattr(self, 'workers'):
+            self.workers = []
         self.workers.append(worker)
         worker.finished.connect(lambda: self.workers.remove(worker))
         worker.error.connect(lambda: self.workers.remove(worker))
@@ -1351,13 +1507,13 @@ class ZerodhaDashboard(QMainWindow):
         self.tabs = QTabWidget()
         self.holdings_tab = HoldingsTab(self.client, self.add_log_entry)
         self.positions_tab = PositionsTab(self.client, self.add_log_entry)
-        self.open_orders_tab = OpenOrdersTab(self.client, self.add_log_entry)
+        self.orders_tab = OrdersTab(self.client, self.add_log_entry)
         self.funds_tab = FundsTab(self.client, self.add_log_entry)
         self.order_tab = OrderPlacementTab(self.client, self.add_log_entry)
 
         self.tabs.addTab(self.holdings_tab, "Holdings")
         self.tabs.addTab(self.positions_tab, "Positions")
-        self.tabs.addTab(self.open_orders_tab, "Open Orders")
+        self.tabs.addTab(self.orders_tab, "Orders")
         self.tabs.addTab(self.funds_tab, "Funds")
         self.tabs.addTab(self.order_tab, "Place Order")
 
@@ -1393,8 +1549,8 @@ class ZerodhaDashboard(QMainWindow):
             self.holdings_tab.refresh_data()
         elif tab_name == "Positions":
             self.positions_tab.refresh_data()
-        elif tab_name == "Open Orders":
-            self.open_orders_tab.refresh_data()
+        elif tab_name == "Orders":
+            self.orders_tab.refresh_data()
         elif tab_name == "Funds":
             self.funds_tab.refresh_data()
 
