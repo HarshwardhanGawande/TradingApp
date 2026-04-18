@@ -1,11 +1,12 @@
 """
-Zerodha Trading Dashboard - PyQt6 GUI (Compact UI)
+Zerodha Trading Dashboard - PyQt6 GUI (Compact UI with Volume Analysis Tab)
 """
 
 import sys
 import os
+import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -16,6 +17,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
+
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 from trading_client_cd import ZerodhaClient
 
@@ -96,7 +101,7 @@ class HoldingsTab(BaseTab):
         self.table = QTableWidget()
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
-        self.table.verticalHeader().setDefaultSectionSize(24)  # compact rows
+        self.table.verticalHeader().setDefaultSectionSize(24)
         layout.addWidget(self.table)
 
         btn_refresh = QPushButton("Refresh Holdings")
@@ -133,7 +138,7 @@ class HoldingsTab(BaseTab):
                 if j != 0:
                     item.setTextAlignment(
                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                if j in (7, 8):   # Net chg. / Day chg.
+                if j in (7, 8):
                     try:
                         num = float(str(val).replace('%', '').replace('+', ''))
                         if num > 0:
@@ -266,7 +271,7 @@ class PositionsTab(BaseTab):
                 item = QTableWidgetItem(str(val))
                 item.setTextAlignment(
                     Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                if j in (4, 5):   # P&L / Unrealized
+                if j in (4, 5):
                     try:
                         num_val = float(val)
                         if num_val > 0:
@@ -309,7 +314,6 @@ class OrdersTab(BaseTab):
         layout.setSpacing(4)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        # Filter row - more compact
         filter_layout = QHBoxLayout()
         filter_layout.setSpacing(8)
 
@@ -552,7 +556,7 @@ class QuickOrderDialog(QDialog):
         """)
         layout.addWidget(self.ltp_label)
 
-        # Risk Management Group (compact)
+        # Risk Management Group
         risk_group = QGroupBox("Risk Management")
         risk_layout = QFormLayout()
         risk_layout.setSpacing(4)
@@ -625,7 +629,7 @@ class QuickOrderDialog(QDialog):
         btn_layout.addWidget(self.sell_btn)
         layout.addLayout(btn_layout)
 
-        # Exit Order Settings (compact)
+        # Exit Order Settings
         exit_group = QGroupBox("Exit Order Settings")
         exit_layout = QVBoxLayout()
         exit_layout.setSpacing(4)
@@ -651,7 +655,7 @@ class QuickOrderDialog(QDialog):
         self.sl_radio.setChecked(True)
         sl_layout.addWidget(self.sl_radio)
         sl_layout.addWidget(QLabel("SL %:"))
-        sl_layout.addWidget(self.sl_percent_spin)   # reuse
+        sl_layout.addWidget(self.sl_percent_spin)
         sl_layout.addStretch()
         exit_layout.addLayout(sl_layout)
 
@@ -689,7 +693,6 @@ class QuickOrderDialog(QDialog):
 
         self.setLayout(layout)
 
-    # ── Margin & Capital ──────────────────────────────────────────────────
     def fetch_initial_margin(self):
         self._run_worker(
             self.client.get_margin_summary,
@@ -713,7 +716,6 @@ class QuickOrderDialog(QDialog):
         self.max_sl_spin.blockSignals(False)
         self.update_quantity()
 
-    # ── Quantity calculation (uses SL %) ──────────────────────────────────
     def update_quantity(self):
         if self.current_ltp is None or self.current_ltp <= 0:
             self.quantity_spin.setValue(1)
@@ -734,7 +736,6 @@ class QuickOrderDialog(QDialog):
         qty = max(qty, 1)
         self.quantity_spin.setValue(qty)
 
-    # ── LTP fetch ─────────────────────────────────────────────────────────
     def fetch_ltp(self):
         symbol = self.symbol_combo.currentText().strip().upper()
         if not symbol:
@@ -768,7 +769,6 @@ class QuickOrderDialog(QDialog):
         self.status_label.setText(f"Error: {err}")
         self.log(f"Quick order LTP error: {err}", category="Error", error=True)
 
-    # ── Order placement (unchanged logic) ─────────────────────────────────
     def place_order(self, transaction_type):
         if not self.current_symbol:
             QMessageBox.warning(self, "Input Error", "Please select a symbol and fetch LTP.")
@@ -782,17 +782,17 @@ class QuickOrderDialog(QDialog):
         mode = "Target" if is_target else "Stop Loss"
         exit_pct = self.target_percent_spin.value() if is_target else self.sl_percent_spin.value()
 
-        # confirm = QMessageBox.question(
-        #     self, "Confirm Order",
-        #     f"Place {transaction_type} market order?\n\n"
-        #     f"  Symbol   : {self.current_symbol}\n"
-        #     f"  Quantity : {quantity}\n"
-        #     f"  LTP      : ₹{self.current_ltp:,.2f}\n"
-        #     f"  Exit as  : {mode} @ {exit_pct:.1f}%",
-        #     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        # )
-        # if confirm != QMessageBox.StandardButton.Yes:
-        #     return
+        confirm = QMessageBox.question(
+            self, "Confirm Order",
+            f"Place {transaction_type} market order?\n\n"
+            f"  Symbol   : {self.current_symbol}\n"
+            f"  Quantity : {quantity}\n"
+            f"  LTP      : ₹{self.current_ltp:,.2f}\n"
+            f"  Exit as  : {mode} @ {exit_pct:.1f}%",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
 
         self.buy_btn.setEnabled(False)
         self.sell_btn.setEnabled(False)
@@ -842,7 +842,6 @@ class QuickOrderDialog(QDialog):
         QTimer.singleShot(1500, lambda: self.fetch_position_with_retry(
             transaction_type, quantity, is_target))
 
-    # ── Position polling (unchanged) ──────────────────────────────────────
     def fetch_position_with_retry(self, transaction_type, quantity, is_target, delay=1500):
         self._run_worker(
             self.client.positions.get_net_positions,
@@ -888,7 +887,6 @@ class QuickOrderDialog(QDialog):
                      category="Error", error=True)
             self.status_label.setText("Position fetch failed")
 
-    # ── Place exit order (unchanged) ──────────────────────────────────────
     def place_target_sl_order(self, avg_price, transaction_type, quantity, is_target):
         if is_target:
             percent = self.target_percent_spin.value() / 100.0
@@ -907,7 +905,7 @@ class QuickOrderDialog(QDialog):
                 order_type_api = "SL"
                 price = round(avg_price * (1.0 - percent), 2)
                 trigger_price = round(price * 1.001, 2)
-        else:  # SELL
+        else:
             exit_transaction = "BUY"
             if is_target:
                 order_type_api = "LIMIT"
@@ -965,7 +963,6 @@ class QuickOrderDialog(QDialog):
         self.status_label.setText(f"Error: {err}")
         self.log(f"Quick order error: {err}", category="Error", error=True)
 
-    # ── Convert Target ↔ SL (unchanged) ───────────────────────────────────
     def convert_target_sl(self):
         if not self.current_symbol:
             QMessageBox.warning(self, "Input Error", "Please select a symbol first.")
@@ -1112,7 +1109,6 @@ class QuickOrderDialog(QDialog):
             "regular", payload
         )
 
-    # ── Helpers (unchanged) ───────────────────────────────────────────────
     def _find_position(self, positions):
         for p in positions:
             if p.get('tradingsymbol') == self.current_symbol:
@@ -1141,7 +1137,6 @@ class QuickOrderDialog(QDialog):
         exit_type = "SELL" if (net_qty > 0 or buy_qty > 0) else "BUY"
         return avg_price, quantity, exit_type
 
-    # ── Worker management ─────────────────────────────────────────────────
     def _run_worker(self, func, finished_callback, error_callback, *args, **kwargs):
         worker = ApiWorker(func, *args, **kwargs)
         worker.finished.connect(finished_callback)
@@ -1174,7 +1169,7 @@ class QuickOrderDialog(QDialog):
         self.show()
 
 
-# ========== Order Placement Tab (Compact) ==========
+# ========== Order Placement Tab (Compact — NO volume section) ==========
 class OrderPlacementTab(BaseTab):
     def __init__(self, client, log_callback):
         super().__init__(log_callback)
@@ -1289,7 +1284,7 @@ class OrderPlacementTab(BaseTab):
         risk_group.setLayout(risk_layout)
         layout.addWidget(risk_group)
 
-        # Order parameters group (compact)
+        # Order parameters group
         order_group = QGroupBox("Order Parameters")
         order_layout = QFormLayout()
         order_layout.setSpacing(4)
@@ -1332,6 +1327,7 @@ class OrderPlacementTab(BaseTab):
         order_group.setLayout(order_layout)
         layout.addWidget(order_group)
 
+        # Status label
         self.status_label = QLabel("Ready")
         self.status_label.setStyleSheet("font-size: 10px; padding: 2px;")
         layout.addWidget(self.status_label)
@@ -1576,12 +1572,335 @@ class OrderPlacementTab(BaseTab):
                      category="Error", error=True)
 
 
-# ========== Main Dashboard (Compact) ==========
+# ========== Volume Analysis Tab (Standalone) ==========
+class VolumeAnalysisTab(BaseTab):
+    def __init__(self, client, log_callback):
+        super().__init__(log_callback)
+        self.client      = client
+        self.volume_data = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        layout.setSpacing(8)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        # ── Title ──────────────────────────────────────────────────────────
+        title_lbl = QLabel("📊 Volume Analysis")
+        title_lbl.setStyleSheet(
+            "font-weight: bold; font-size: 14px; color: #c0c8d8; padding: 2px 0;")
+        layout.addWidget(title_lbl)
+
+        # ── Symbol + Fetch row ─────────────────────────────────────────────
+        symbol_layout = QHBoxLayout()
+        symbol_layout.setSpacing(8)
+        symbol_layout.addWidget(QLabel("Symbol:"))
+        self.symbol_combo = QComboBox()
+        self.symbol_combo.setEditable(True)
+        self.symbol_combo.addItems(self.client.symbols)
+        self.symbol_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        completer = self.symbol_combo.completer()
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.symbol_combo.lineEdit().returnPressed.connect(self.fetch_volume_analysis)
+        symbol_layout.addWidget(self.symbol_combo, 3)
+
+        self.fetch_btn = QPushButton("📊 Fetch Volume Analysis")
+        self.fetch_btn.setObjectName("primaryBtn")
+        self.fetch_btn.clicked.connect(self.fetch_volume_analysis)
+        symbol_layout.addWidget(self.fetch_btn)
+        layout.addLayout(symbol_layout)
+
+        # ── Metrics cards row ──────────────────────────────────────────────
+        self.metrics_frame = QFrame()
+        self.metrics_frame.setVisible(False)
+        metrics_layout = QHBoxLayout(self.metrics_frame)
+        metrics_layout.setSpacing(8)
+        metrics_layout.setContentsMargins(0, 4, 0, 4)
+
+        def make_vol_card(title, attr, color):
+            card = QFrame()
+            card.setStyleSheet(
+                f"background-color: #111318; border-radius: 6px; "
+                f"border-left: 3px solid {color}; padding: 6px 10px;")
+            vbox = QVBoxLayout(card)
+            vbox.setSpacing(2)
+            vbox.setContentsMargins(6, 4, 6, 4)
+            lbl_title = QLabel(title)
+            lbl_title.setStyleSheet(
+                "font-weight: bold; font-size: 9px; color: #4a5060; border: none;")
+            lbl_val = QLabel("--")
+            lbl_val.setStyleSheet(
+                f"font-weight: bold; font-size: 15px; color: {color}; border: none;")
+            vbox.addWidget(lbl_title)
+            vbox.addWidget(lbl_val)
+            setattr(self, attr, lbl_val)
+            return card
+
+        metrics_layout.addWidget(make_vol_card("Today / Last Day", "card_today", "#00e5a0"))
+        metrics_layout.addWidget(make_vol_card("Previous Day",      "card_prev",  "#00b8ff"))
+        metrics_layout.addWidget(make_vol_card("1-Week Avg",        "card_1w",    "#7c6af7"))
+        metrics_layout.addWidget(make_vol_card("2-Week Avg",        "card_2w",    "#f7a26a"))
+        metrics_layout.addWidget(make_vol_card("1-Month Avg",       "card_1m",    "#f76a8a"))
+        layout.addWidget(self.metrics_frame)
+
+        # ── Ratio indicators ───────────────────────────────────────────────
+        self.ratios_frame = QFrame()
+        self.ratios_frame.setVisible(False)
+        ratios_layout = QHBoxLayout(self.ratios_frame)
+        ratios_layout.setSpacing(8)
+        ratios_layout.setContentsMargins(0, 0, 0, 4)
+
+        self.ratio_vs_1w  = QLabel("")
+        self.ratio_vs_1m  = QLabel("")
+        self.ratio_vs_prev = QLabel("")
+        for lbl in [self.ratio_vs_prev, self.ratio_vs_1w, self.ratio_vs_1m]:
+            lbl.setStyleSheet(
+                "font-size: 11px; padding: 3px 8px; border-radius: 4px; "
+                "background-color: #1a1d24; color: #c0c8d8;")
+            ratios_layout.addWidget(lbl)
+        ratios_layout.addStretch()
+        layout.addWidget(self.ratios_frame)
+
+        # ── Matplotlib chart ───────────────────────────────────────────────
+        self.chart_frame = QFrame()
+        self.chart_frame.setVisible(False)
+        chart_layout = QVBoxLayout(self.chart_frame)
+        chart_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.figure = Figure(figsize=(7, 3.5), dpi=88, facecolor='#0d0f14')
+        self.canvas = FigureCanvas(self.figure)
+        self.canvas.setMinimumHeight(260)
+        chart_layout.addWidget(self.canvas)
+        layout.addWidget(self.chart_frame)
+
+        # ── Status label ───────────────────────────────────────────────────
+        self.status_label = QLabel("Select a symbol and click Fetch Volume Analysis.")
+        self.status_label.setStyleSheet("font-size: 10px; color: #4a5060; padding: 2px;")
+        layout.addWidget(self.status_label)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+    # ── Fetch & compute ───────────────────────────────────────────────────
+    def fetch_volume_analysis(self):
+        symbol = self.symbol_combo.currentText().strip().upper()
+        if not symbol:
+            QMessageBox.warning(self, "Input Error", "Please select a symbol.")
+            return
+        self.log(f"Fetching volume analysis for {symbol}...", category="Info")
+        self.status_label.setText(f"Fetching volume data for {symbol}…")
+        self.fetch_btn.setEnabled(False)
+        self._run_worker(
+            self._fetch_volume_data,
+            self.on_volume_fetched,
+            self.on_volume_error,
+            symbol
+        )
+
+    def _fetch_volume_data(self, symbol):
+        instrument_id = self.client.token_map.get(symbol)
+        if not instrument_id:
+            raise Exception(f"No instrument ID for {symbol}")
+
+        session = self.client.trading.session
+        user_id = self.client.trading.user_id
+
+        today     = datetime.now().date()
+        from_date = (today - timedelta(days=35)).strftime("%Y-%m-%d")
+        to_date   = today.strftime("%Y-%m-%d")
+
+        hist_url = (f"https://kite.zerodha.com/oms/instruments/historical"
+                    f"/{instrument_id}/day")
+        params   = {"user_id": user_id, "oi": "1",
+                    "from": from_date, "to": to_date}
+        resp = session.get(hist_url, params=params)
+        if resp.status_code != 200:
+            raise Exception(
+                f"Daily candles HTTP {resp.status_code}: {resp.text[:200]}")
+        data = resp.json()
+        if data.get("status") != "success":
+            raise Exception(data.get("message", "Unknown error"))
+        candles = data.get("data", {}).get("candles", [])
+        if not candles:
+            raise Exception("No daily candles returned")
+
+        daily_vol = [(c[0][:10], int(c[5])) for c in candles]
+
+        # Today's intraday volume
+        minute_url  = (f"https://kite.zerodha.com/oms/instruments/historical"
+                       f"/{instrument_id}/minute")
+        params_min  = {"user_id": user_id, "oi": "1",
+                       "from": today.strftime("%Y-%m-%d"),
+                       "to":   today.strftime("%Y-%m-%d")}
+        resp_min    = session.get(minute_url, params=params_min)
+        today_vol   = 0
+        if resp_min.status_code == 200:
+            min_data = resp_min.json()
+            if min_data.get("status") == "success":
+                min_candles = min_data.get("data", {}).get("candles", [])
+                today_vol   = sum(int(c[5]) for c in min_candles)
+
+        hist_days    = [(d, v) for d, v in daily_vol
+                        if d != today.strftime("%Y-%m-%d")]
+        if not hist_days:
+            raise Exception("No historical data")
+
+        is_holiday    = (today_vol == 0)
+        display_today = hist_days[-1][1] if is_holiday else today_vol
+        display_label = hist_days[-1][0] if is_holiday else "Today"
+
+        week1_vols  = [v for _, v in hist_days[-5:]]
+        week2_vols  = [v for _, v in hist_days[-10:]]
+        month1_vols = [v for _, v in hist_days[-22:]]
+        avg_1w  = int(sum(week1_vols)  / len(week1_vols))  if week1_vols  else 0
+        avg_2w  = int(sum(week2_vols)  / len(week2_vols))  if week2_vols  else 0
+        avg_1m  = int(sum(month1_vols) / len(month1_vols)) if month1_vols else 0
+        prev_day = hist_days[-2][1] if len(hist_days) >= 2 else hist_days[-1][1]
+
+        # Last 22 trading days for sparkline
+        recent_days = hist_days[-22:]
+
+        return {
+            "today":       display_today,
+            "today_label": display_label,
+            "is_holiday":  is_holiday,
+            "prev_day":    prev_day,
+            "avg_1w":      avg_1w,
+            "avg_2w":      avg_2w,
+            "avg_1m":      avg_1m,
+            "symbol":      symbol,
+            "recent_days": recent_days,   # list of (date_str, volume)
+        }
+
+    def on_volume_fetched(self, result):
+        self.volume_data = result
+        self.fetch_btn.setEnabled(True)
+
+        def fmt(v):
+            if v >= 1_000_000: return f"{v/1_000_000:.2f}M"
+            if v >= 1_000:     return f"{v/1_000:.1f}K"
+            return str(v)
+
+        today = result["today"]
+        prev  = result["prev_day"]
+        w1    = result["avg_1w"]
+        w2    = result["avg_2w"]
+        m1    = result["avg_1m"]
+
+        # Update metric cards
+        self.card_today.setText(fmt(today))
+        self.card_prev.setText(fmt(prev))
+        self.card_1w.setText(fmt(w1))
+        self.card_2w.setText(fmt(w2))
+        self.card_1m.setText(fmt(m1))
+        self.metrics_frame.setVisible(True)
+
+        # Ratio labels
+        def ratio_text(label, val, ref, ref_name):
+            if ref > 0:
+                r = val / ref
+                arrow = "▲" if r >= 1 else "▼"
+                color = "#00e5a0" if r >= 1 else "#ff4d6d"
+                label.setText(
+                    f"vs {ref_name}: {arrow} {r:.2f}x")
+                label.setStyleSheet(
+                    f"font-size: 11px; padding: 3px 10px; border-radius: 4px; "
+                    f"background-color: #1a1d24; color: {color};")
+
+        ratio_text(self.ratio_vs_prev, today, prev, "Prev Day")
+        ratio_text(self.ratio_vs_1w,   today, w1,   "1W Avg")
+        ratio_text(self.ratio_vs_1m,   today, m1,   "1M Avg")
+        self.ratios_frame.setVisible(True)
+
+        # ── Draw chart ────────────────────────────────────────────────────
+        self.figure.clear()
+        fig = self.figure
+        fig.patch.set_facecolor('#0d0f14')
+
+        # Two subplots: bar comparison (left) + recent history line (right)
+        ax1 = fig.add_subplot(1, 2, 1)
+        ax2 = fig.add_subplot(1, 2, 2)
+        fig.subplots_adjust(left=0.05, right=0.97, top=0.88, bottom=0.12,
+                            wspace=0.35)
+
+        # — Left: horizontal bar comparison —
+        categories = ['1M Avg', '2W Avg', '1W Avg', 'Prev Day', result['today_label']]
+        values     = [m1, w2, w1, prev, today]
+        colors_bar = ['#f76a8a', '#f7a26a', '#7c6af7', '#00b8ff', '#00e5a0']
+        bars = ax1.barh(categories, values, color=colors_bar, height=0.55)
+        ax1.bar_label(bars, labels=[fmt(v) for v in values],
+                      padding=4, fontsize=8, color='#c0c8d8')
+        ax1.set_facecolor('#111318')
+        ax1.tick_params(colors='#6a7080', labelsize=8)
+        for sp in ax1.spines.values():
+            sp.set_color('#1e2128')
+        ax1.spines['top'].set_visible(False)
+        ax1.spines['right'].set_visible(False)
+        ax1.set_xlabel("Volume", color='#4a5060', fontsize=8)
+        ax1.set_title("Comparison", color='#8890a0', fontsize=9, pad=6)
+        ax1.xaxis.set_major_formatter(
+            plt.FuncFormatter(lambda x, _: fmt(int(x))))
+
+        # — Right: 22-day volume history —
+        recent = result.get("recent_days", [])
+        if recent:
+            dates  = [r[0][-5:] for r in recent]   # MM-DD
+            vols   = [r[1]      for r in recent]
+            bar_colors = ['#00e5a0' if v >= (m1 or 1) else '#3a3f50' for v in vols]
+            x_pos = list(range(len(dates)))
+            ax2.bar(x_pos, vols, color=bar_colors, width=0.75)
+            # Avg line
+            if m1 > 0:
+                ax2.axhline(m1, color='#f76a8a', linewidth=1.0,
+                            linestyle='--', label='1M Avg')
+            if w1 > 0:
+                ax2.axhline(w1, color='#7c6af7', linewidth=1.0,
+                            linestyle=':', label='1W Avg')
+            ax2.set_facecolor('#111318')
+            ax2.tick_params(colors='#6a7080', labelsize=7)
+            step = max(1, len(dates) // 6)
+            ax2.set_xticks(x_pos[::step])
+            ax2.set_xticklabels(dates[::step], rotation=30, ha='right')
+            for sp in ax2.spines.values():
+                sp.set_color('#1e2128')
+            ax2.spines['top'].set_visible(False)
+            ax2.spines['right'].set_visible(False)
+            ax2.yaxis.set_major_formatter(
+                plt.FuncFormatter(lambda x, _: fmt(int(x))))
+            ax2.set_title("22-Day History  (green ≥ 1M avg)",
+                          color='#8890a0', fontsize=9, pad=6)
+            ax2.legend(fontsize=7, facecolor='#111318',
+                       labelcolor='#c0c8d8', framealpha=0.6)
+
+        # Overall title
+        holiday_note = "  ⚠ Holiday — showing last trading day" if result["is_holiday"] else ""
+        fig.suptitle(
+            f"Volume Analysis — {result['symbol']}{holiday_note}",
+            color='#c0c8d8', fontsize=10, fontweight='bold', y=0.97)
+
+        self.canvas.draw()
+        self.chart_frame.setVisible(True)
+
+        self.log(f"Volume analysis updated for {result['symbol']}", category="Success")
+        self.status_label.setText(
+            f"Volume data ready for {result['symbol']}  |  "
+            f"Today vs 1M avg: {today/m1:.2f}x" if m1 else
+            f"Volume data ready for {result['symbol']}")
+
+    def on_volume_error(self, err):
+        self.fetch_btn.setEnabled(True)
+        self.status_label.setText(f"Volume error: {err}")
+        self.log(f"Volume analysis error: {err}", category="Error", error=True)
+        QMessageBox.warning(self, "Volume Analysis Failed", str(err))
+
+
+# ========== Main Dashboard ==========
 class ZerodhaDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Zerodha Trading Dashboard")
-        self.setGeometry(100, 100, 1200, 700)  # smaller default size
+        self.setGeometry(100, 100, 1200, 700)
         self.load_stylesheet()
 
         self.client      = ZerodhaClient()
@@ -1596,14 +1915,14 @@ class ZerodhaDashboard(QMainWindow):
         main_layout.setContentsMargins(2, 2, 2, 2)
         main_layout.setSpacing(4)
 
-        # ── Log panel (compact) ───────────────────────────────────────────────
+        # Log panel
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(2)
 
         self.log_container = QWidget()
         self.log_container.setObjectName("log_container")
-        self.log_container.setFixedWidth(260)  # fixed compact width
+        self.log_container.setFixedWidth(260)
         log_layout = QVBoxLayout(self.log_container)
         log_layout.setContentsMargins(2, 2, 2, 2)
         log_layout.setSpacing(2)
@@ -1625,32 +1944,35 @@ class ZerodhaDashboard(QMainWindow):
         self.log_text.setReadOnly(True)
         self.log_text.setStyleSheet(
             "background-color: #1e1e1e; color: #d4d4d4; "
-            "font-family: monospace; font-size: 9pt;")  # smaller font
+            "font-family: monospace; font-size: 9pt;")
         log_layout.addWidget(self.log_text)
 
-        right_layout.addWidget(self.log_container)
-        right_layout.addStretch()
+        right_layout.addWidget(self.log_container, 1)
 
-        # ── Tabs ──────────────────────────────────────────────────────────────
+        # Tabs
         self.tabs           = QTabWidget()
         self.holdings_tab   = HoldingsTab(self.client,   self.add_log_entry)
         self.positions_tab  = PositionsTab(self.client,  self.add_log_entry)
         self.orders_tab     = OrdersTab(self.client,     self.add_log_entry)
         self.funds_tab      = FundsTab(self.client,      self.add_log_entry)
         self.order_tab      = OrderPlacementTab(self.client, self.add_log_entry)
+        self.volume_tab     = VolumeAnalysisTab(self.client, self.add_log_entry)   # NEW
 
         self.tabs.addTab(self.holdings_tab,  "Holdings")
         self.tabs.addTab(self.positions_tab, "Positions")
         self.tabs.addTab(self.orders_tab,    "Orders")
         self.tabs.addTab(self.funds_tab,     "Funds")
         self.tabs.addTab(self.order_tab,     "Place Order")
+        self.tabs.addTab(self.volume_tab,    "📊 Volume")   # NEW
         self.tabs.currentChanged.connect(self.on_tab_changed)
 
         main_layout.addWidget(self.tabs, 4)
         main_layout.addLayout(right_layout, 1)
 
         self.tabs.setCurrentIndex(4)
-        self.add_log_entry("Dashboard initialized (compact UI). Ready.", category="Info")
+        self.add_log_entry(
+            "Dashboard initialized (compact UI + Volume Analysis tab). Ready.",
+            category="Info")
         self.statusBar().showMessage("Ready")
 
     def load_stylesheet(self):
@@ -1659,24 +1981,25 @@ class ZerodhaDashboard(QMainWindow):
             with open(qss_file, "r") as f:
                 self.setStyleSheet(f.read())
         else:
-            # fallback compact style
             self.setStyleSheet("""
-                QGroupBox { font-weight: bold; border: 1px solid #3c3c3c; border-radius: 4px; margin-top: 8px; padding-top: 4px; }
-                QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
+                QGroupBox {
+                    font-weight: bold; border: 1px solid #3c3c3c;
+                    border-radius: 4px; margin-top: 8px; padding-top: 4px;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin; left: 8px; padding: 0 4px;
+                }
                 QPushButton { padding: 4px 8px; }
                 QTableWidget::item { padding: 2px; }
             """)
 
-    def resizeEvent(self, event):
-        # keep log container fixed width, no dynamic resize
-        super().resizeEvent(event)
-
     def on_tab_changed(self, index):
         name = self.tabs.tabText(index)
-        if name == "Holdings":  self.holdings_tab.refresh_data()
-        elif name == "Positions": self.positions_tab.refresh_data()
-        elif name == "Orders":    self.orders_tab.refresh_data()
-        elif name == "Funds":     self.funds_tab.refresh_data()
+        if name == "Holdings":     self.holdings_tab.refresh_data()
+        elif name == "Positions":  self.positions_tab.refresh_data()
+        elif name == "Orders":     self.orders_tab.refresh_data()
+        elif name == "Funds":      self.funds_tab.refresh_data()
+        # Volume tab: user clicks Fetch manually — no auto-refresh needed
 
     def add_log_entry(self, message, category="Info", error=False):
         if error and category == "Info":
