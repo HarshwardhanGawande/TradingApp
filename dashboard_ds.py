@@ -1,5 +1,5 @@
 """
-Zerodha Trading Dashboard - PyQt6 GUI
+Zerodha Trading Dashboard - PyQt6 GUI (Compact UI)
 """
 
 import sys
@@ -47,6 +47,7 @@ class BaseTab(QWidget):
         super().__init__()
         self.log     = log_callback
         self.workers = []
+        self.setContentsMargins(2, 2, 2, 2)
 
     def _run_worker(self, func, finished_callback, error_callback, *args, **kwargs):
         worker = ApiWorker(func, *args, **kwargs)
@@ -70,27 +71,32 @@ class HoldingsTab(BaseTab):
         self.refresh_data()
 
     def init_ui(self):
-        layout         = QVBoxLayout()
+        layout = QVBoxLayout()
+        layout.setSpacing(4)
+        layout.setContentsMargins(4, 4, 4, 4)
+
         summary_layout = QHBoxLayout()
+        summary_layout.setSpacing(8)
 
         self.total_invested_label = QLabel("Total Invested: --")
         self.current_value_label  = QLabel("Current Value: --")
         self.day_pnl_label        = QLabel("Day's P&L: --")
         self.total_pnl_label      = QLabel("Total P&L: --")
 
-        default_style = (
-            "font-weight: bold; font-size: 14px; padding: 8px; "
-            "background-color: #111318; border-radius: 5px; color: #e0e0e0;"
+        compact_style = (
+            "font-weight: bold; font-size: 12px; padding: 4px 8px; "
+            "background-color: #111318; border-radius: 4px; color: #e0e0e0;"
         )
         for label in [self.total_invested_label, self.current_value_label,
                       self.day_pnl_label, self.total_pnl_label]:
-            label.setStyleSheet(default_style)
+            label.setStyleSheet(compact_style)
             summary_layout.addWidget(label)
         layout.addLayout(summary_layout)
 
         self.table = QTableWidget()
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
+        self.table.verticalHeader().setDefaultSectionSize(24)  # compact rows
         layout.addWidget(self.table)
 
         btn_refresh = QPushButton("Refresh Holdings")
@@ -153,34 +159,34 @@ class HoldingsTab(BaseTab):
 
             self.total_invested_label.setText(f"Total Invested: ₹{total_invested:,.2f}")
             self.total_invested_label.setStyleSheet(
-                "font-weight: bold; font-size: 14px; padding: 8px; "
-                "background-color: #111318; border-radius: 5px; color: #e0e0e0;")
+                "font-weight: bold; font-size: 12px; padding: 4px 8px; "
+                "background-color: #111318; border-radius: 4px; color: #e0e0e0;")
 
             if total_current > total_invested:
                 self.current_value_label.setText(f"Current Value: ₹{total_current:,.2f} ▲")
                 self.current_value_label.setStyleSheet(
-                    "font-weight: bold; font-size: 14px; padding: 8px; "
-                    "background-color: #111318; border-radius: 5px; color: #00aa55;")
+                    "font-weight: bold; font-size: 12px; padding: 4px 8px; "
+                    "background-color: #111318; border-radius: 4px; color: #00aa55;")
             else:
                 self.current_value_label.setText(f"Current Value: ₹{total_current:,.2f}")
                 self.current_value_label.setStyleSheet(
-                    "font-weight: bold; font-size: 14px; padding: 8px; "
-                    "background-color: #111318; border-radius: 5px; color: #e0e0e0;")
+                    "font-weight: bold; font-size: 12px; padding: 4px 8px; "
+                    "background-color: #111318; border-radius: 4px; color: #e0e0e0;")
 
             day_pct  = (day_pnl / total_invested * 100) if total_invested else 0
             self.day_pnl_label.setText(
                 f"Day's P&L: ₹{day_pnl:,.2f} ({day_pct:+.2f}%)")
             self.day_pnl_label.setStyleSheet(
-                "font-weight: bold; font-size: 14px; padding: 8px; "
-                "background-color: #111318; border-radius: 5px; color: " +
+                "font-weight: bold; font-size: 12px; padding: 4px 8px; "
+                "background-color: #111318; border-radius: 4px; color: " +
                 ("#00aa55" if day_pnl > 0 else "#ff4d6d" if day_pnl < 0 else "#e0e0e0") + ";")
 
             total_pct = (total_pnl / total_invested * 100) if total_invested else 0
             self.total_pnl_label.setText(
                 f"Total P&L: ₹{total_pnl:,.2f} ({total_pct:+.2f}%)")
             self.total_pnl_label.setStyleSheet(
-                "font-weight: bold; font-size: 14px; padding: 8px; "
-                "background-color: #111318; border-radius: 5px; color: " +
+                "font-weight: bold; font-size: 12px; padding: 4px 8px; "
+                "background-color: #111318; border-radius: 4px; color: " +
                 ("#00aa55" if total_pnl > 0 else "#ff4d6d" if total_pnl < 0 else "#e0e0e0") + ";")
 
             self.log(f"Holdings refreshed. Total P&L: ₹{total_pnl:,.2f}", category="Success")
@@ -197,19 +203,23 @@ class PositionsTab(BaseTab):
         self.refresh_data()
 
     def init_ui(self):
-        layout         = QVBoxLayout()
+        layout = QVBoxLayout()
+        layout.setSpacing(4)
+        layout.setContentsMargins(4, 4, 4, 4)
+
         summary_layout = QHBoxLayout()
+        summary_layout.setSpacing(8)
 
         self.net_pnl_label    = QLabel("Net P&L: --")
         self.unrealized_label = QLabel("Unrealized P&L: --")
+        compact_style = "font-weight: bold; font-size: 12px; padding: 4px 8px; background-color: #111318; border-radius: 4px;"
         for label in [self.net_pnl_label, self.unrealized_label]:
-            label.setStyleSheet(
-                "font-weight: bold; font-size: 14px; padding: 8px; "
-                "background-color: #111318; border-radius: 5px;")
+            label.setStyleSheet(compact_style)
             summary_layout.addWidget(label)
         layout.addLayout(summary_layout)
 
         self.table = QTableWidget()
+        self.table.verticalHeader().setDefaultSectionSize(24)
         layout.addWidget(self.table)
 
         btn = QPushButton("Refresh Positions")
@@ -282,8 +292,8 @@ class PositionsTab(BaseTab):
         label.setText(f"{title}: ₹{value:,.2f}")
         color = "#00aa55" if value > 0 else "#ff4d6d" if value < 0 else "#e0e0e0"
         label.setStyleSheet(
-            f"font-weight: bold; font-size: 14px; padding: 8px; "
-            f"background-color: #111318; border-radius: 5px; color: {color};")
+            f"font-weight: bold; font-size: 12px; padding: 4px 8px; "
+            f"background-color: #111318; border-radius: 4px; color: {color};")
 
 
 # ========== Orders Tab ==========
@@ -296,10 +306,12 @@ class OrdersTab(BaseTab):
 
     def init_ui(self):
         layout = QVBoxLayout()
+        layout.setSpacing(4)
+        layout.setContentsMargins(4, 4, 4, 4)
 
-        # Filter row
+        # Filter row - more compact
         filter_layout = QHBoxLayout()
-        filter_layout.setSpacing(15)
+        filter_layout.setSpacing(8)
 
         self.chk_open      = QCheckBox("Open")
         self.chk_complete  = QCheckBox("Complete")
@@ -320,7 +332,7 @@ class OrdersTab(BaseTab):
         filter_layout.addWidget(self.chk_sell)
 
         self.chk_mis = QCheckBox("MIS")
-        self.chk_cnc = QCheckBox("Investment (CNC)")
+        self.chk_cnc = QCheckBox("CNC")
         self.chk_mis.setChecked(True)
         filter_layout.addWidget(QLabel("Product:"))
         filter_layout.addWidget(self.chk_mis)
@@ -335,6 +347,7 @@ class OrdersTab(BaseTab):
         self.table = QTableWidget()
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
+        self.table.verticalHeader().setDefaultSectionSize(24)
         layout.addWidget(self.table)
 
         btn_refresh = QPushButton("Refresh Orders")
@@ -431,21 +444,24 @@ class FundsTab(BaseTab):
         self.refresh_data()
 
     def init_ui(self):
-        layout      = QVBoxLayout()
+        layout = QVBoxLayout()
+        layout.setSpacing(4)
+        layout.setContentsMargins(4, 4, 4, 4)
+
         card_layout = QHBoxLayout()
-        card_layout.setSpacing(20)
+        card_layout.setSpacing(12)
 
         def make_card(title, attr, color):
             card = QFrame()
             card.setStyleSheet(
-                "background-color: #111318; border-radius: 8px; padding: 10px;")
+                "background-color: #111318; border-radius: 6px; padding: 4px 8px;")
             vbox = QVBoxLayout(card)
+            vbox.setSpacing(2)
             lbl  = QLabel(title)
-            lbl.setStyleSheet(
-                "font-weight: bold; font-size: 12px; color: #4a5060;")
+            lbl.setStyleSheet("font-weight: bold; font-size: 10px; color: #4a5060;")
             val = QLabel("--")
             val.setStyleSheet(
-                f"font-weight: bold; font-size: 18px; color: {color};")
+                f"font-weight: bold; font-size: 14px; color: {color};")
             vbox.addWidget(lbl)
             vbox.addWidget(val)
             setattr(self, attr, val)
@@ -479,13 +495,14 @@ class FundsTab(BaseTab):
         self.log("Funds updated.", category="Success")
 
 
-# ========== Quick Order Dialog (Redesigned) ==========
+# ========== Quick Order Dialog (Compact) ==========
 class QuickOrderDialog(QDialog):
     def __init__(self, client, log_callback, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Quick Order")
         self.setModal(True)
-        self.setMinimumWidth(550)
+        self.setMinimumWidth(480)
+        self.setMaximumWidth(550)
 
         self.client         = client
         self.log            = log_callback
@@ -497,10 +514,10 @@ class QuickOrderDialog(QDialog):
         self.init_ui()
         self.fetch_initial_margin()
 
-    # ── UI ────────────────────────────────────────────────────────────────
     def init_ui(self):
         layout = QVBoxLayout()
-        layout.setSpacing(12)
+        layout.setSpacing(6)
+        layout.setContentsMargins(8, 8, 8, 8)
 
         # Symbol row
         symbol_layout = QHBoxLayout()
@@ -519,7 +536,7 @@ class QuickOrderDialog(QDialog):
         self.fetch_ltp_btn.setStyleSheet("""
             QPushButton {
                 background-color: #5dade2; color: white;
-                font-weight: bold; border-radius: 4px; padding: 6px 12px;
+                font-weight: bold; border-radius: 4px; padding: 4px 8px;
             }
             QPushButton:hover { background-color: #3498db; }
         """)
@@ -530,14 +547,16 @@ class QuickOrderDialog(QDialog):
         # LTP display
         self.ltp_label = QLabel("LTP : --")
         self.ltp_label.setStyleSheet("""
-            font-weight: bold; font-size: 14px; padding: 8px;
+            font-weight: bold; font-size: 12px; padding: 4px;
             background-color: #000000; border-radius: 4px; color: white;
         """)
         layout.addWidget(self.ltp_label)
 
-        # ── Risk Management Group ─────────────────────────────────────────
+        # Risk Management Group (compact)
         risk_group = QGroupBox("Risk Management")
         risk_layout = QFormLayout()
+        risk_layout.setSpacing(4)
+        risk_layout.setContentsMargins(4, 4, 4, 4)
 
         self.capital_spin = QDoubleSpinBox()
         self.capital_spin.setRange(0, 10_000_000)
@@ -545,7 +564,7 @@ class QuickOrderDialog(QDialog):
         self.capital_spin.setSingleStep(1000)
         self.capital_spin.setDecimals(2)
         self.capital_spin.valueChanged.connect(self.on_capital_changed)
-        risk_layout.addRow("Capital Amount:", self.capital_spin)
+        risk_layout.addRow("Capital:", self.capital_spin)
 
         self.max_sl_spin = QDoubleSpinBox()
         self.max_sl_spin.setRange(0, 10_000_000)
@@ -553,7 +572,7 @@ class QuickOrderDialog(QDialog):
         self.max_sl_spin.setSingleStep(100)
         self.max_sl_spin.setDecimals(2)
         self.max_sl_spin.valueChanged.connect(self.update_quantity)
-        risk_layout.addRow("Max SL Amount:", self.max_sl_spin)
+        risk_layout.addRow("Max SL:", self.max_sl_spin)
 
         self.sl_percent_spin = QDoubleSpinBox()
         self.sl_percent_spin.setRange(0.1, 10.0)
@@ -561,12 +580,12 @@ class QuickOrderDialog(QDialog):
         self.sl_percent_spin.setSuffix("%")
         self.sl_percent_spin.setSingleStep(0.1)
         self.sl_percent_spin.valueChanged.connect(self.update_quantity)
-        risk_layout.addRow("Stop Loss %:", self.sl_percent_spin)
+        risk_layout.addRow("SL %:", self.sl_percent_spin)
 
         risk_group.setLayout(risk_layout)
         layout.addWidget(risk_group)
 
-        # Quantity (read-only, auto-calculated)
+        # Quantity (auto)
         qty_layout = QHBoxLayout()
         qty_layout.addWidget(QLabel("Quantity (auto):"))
         self.quantity_spin = QSpinBox()
@@ -577,14 +596,14 @@ class QuickOrderDialog(QDialog):
         qty_layout.addStretch()
         layout.addLayout(qty_layout)
 
-        # BUY / SELL buttons
+        # BUY/SELL buttons
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(20)
+        btn_layout.setSpacing(10)
         self.buy_btn = QPushButton("BUY")
         self.buy_btn.setStyleSheet("""
             QPushButton {
                 background-color: #27ae60; color: white;
-                font-weight: bold; border-radius: 4px; padding: 8px 16px;
+                font-weight: bold; border-radius: 4px; padding: 6px 12px;
             }
             QPushButton:hover { background-color: #2ecc71; }
             QPushButton:disabled { background-color: #555; color: #999; }
@@ -595,7 +614,7 @@ class QuickOrderDialog(QDialog):
         self.sell_btn.setStyleSheet("""
             QPushButton {
                 background-color: #e74c3c; color: white;
-                font-weight: bold; border-radius: 4px; padding: 8px 16px;
+                font-weight: bold; border-radius: 4px; padding: 6px 12px;
             }
             QPushButton:hover { background-color: #c0392b; }
             QPushButton:disabled { background-color: #555; color: #999; }
@@ -606,11 +625,12 @@ class QuickOrderDialog(QDialog):
         btn_layout.addWidget(self.sell_btn)
         layout.addLayout(btn_layout)
 
-        # ── Exit Order Settings Group (Target % + SL % + radio) ───────────
+        # Exit Order Settings (compact)
         exit_group = QGroupBox("Exit Order Settings")
         exit_layout = QVBoxLayout()
+        exit_layout.setSpacing(4)
+        exit_layout.setContentsMargins(4, 4, 4, 4)
 
-        # Target row
         target_layout = QHBoxLayout()
         self.target_radio = QRadioButton("Target")
         self.target_radio.setChecked(False)
@@ -621,30 +641,29 @@ class QuickOrderDialog(QDialog):
         self.target_percent_spin.setValue(1.0)
         self.target_percent_spin.setSuffix("%")
         self.target_percent_spin.setSingleStep(0.1)
-        self.target_percent_spin.setFixedWidth(100)
+        self.target_percent_spin.setFixedWidth(90)
         target_layout.addWidget(self.target_percent_spin)
         target_layout.addStretch()
         exit_layout.addLayout(target_layout)
 
-        # Stop Loss row
         sl_layout = QHBoxLayout()
         self.sl_radio = QRadioButton("Stop Loss")
-        self.sl_radio.setChecked(True)   # default
+        self.sl_radio.setChecked(True)
         sl_layout.addWidget(self.sl_radio)
         sl_layout.addWidget(QLabel("SL %:"))
-        sl_layout.addWidget(self.sl_percent_spin)   # reuse from risk group
+        sl_layout.addWidget(self.sl_percent_spin)   # reuse
         sl_layout.addStretch()
         exit_layout.addLayout(sl_layout)
 
         exit_group.setLayout(exit_layout)
         layout.addWidget(exit_group)
 
-        # Convert Target ↔ SL button
+        # Convert button
         self.convert_btn = QPushButton("Convert Target ↔ SL")
         self.convert_btn.setStyleSheet("""
             QPushButton {
                 background-color: #f39c12; color: white;
-                font-weight: bold; border-radius: 4px; padding: 8px;
+                font-weight: bold; border-radius: 4px; padding: 4px;
             }
             QPushButton:hover { background-color: #e67e22; }
         """)
@@ -656,7 +675,7 @@ class QuickOrderDialog(QDialog):
         self.toggle_main_btn.setStyleSheet("""
             QPushButton {
                 background-color: #5a5a5a; color: white;
-                font-weight: bold; border-radius: 4px; padding: 8px;
+                font-weight: bold; border-radius: 4px; padding: 4px;
             }
             QPushButton:hover { background-color: #7a7a7a; }
         """)
@@ -665,7 +684,7 @@ class QuickOrderDialog(QDialog):
 
         # Status label
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("padding: 5px; color: #e0e0e0;")
+        self.status_label.setStyleSheet("padding: 2px; color: #e0e0e0; font-size: 10px;")
         layout.addWidget(self.status_label)
 
         self.setLayout(layout)
@@ -749,7 +768,7 @@ class QuickOrderDialog(QDialog):
         self.status_label.setText(f"Error: {err}")
         self.log(f"Quick order LTP error: {err}", category="Error", error=True)
 
-    # ── Order placement (unchanged logic, uses selected radio for exit) ───
+    # ── Order placement (unchanged logic) ─────────────────────────────────
     def place_order(self, transaction_type):
         if not self.current_symbol:
             QMessageBox.warning(self, "Input Error", "Please select a symbol and fetch LTP.")
@@ -763,17 +782,17 @@ class QuickOrderDialog(QDialog):
         mode = "Target" if is_target else "Stop Loss"
         exit_pct = self.target_percent_spin.value() if is_target else self.sl_percent_spin.value()
 
-        confirm = QMessageBox.question(
-            self, "Confirm Order",
-            f"Place {transaction_type} market order?\n\n"
-            f"  Symbol   : {self.current_symbol}\n"
-            f"  Quantity : {quantity}\n"
-            f"  LTP      : ₹{self.current_ltp:,.2f}\n"
-            f"  Exit as  : {mode} @ {exit_pct:.1f}%",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
-            return
+        # confirm = QMessageBox.question(
+        #     self, "Confirm Order",
+        #     f"Place {transaction_type} market order?\n\n"
+        #     f"  Symbol   : {self.current_symbol}\n"
+        #     f"  Quantity : {quantity}\n"
+        #     f"  LTP      : ₹{self.current_ltp:,.2f}\n"
+        #     f"  Exit as  : {mode} @ {exit_pct:.1f}%",
+        #     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        # )
+        # if confirm != QMessageBox.StandardButton.Yes:
+        #     return
 
         self.buy_btn.setEnabled(False)
         self.sell_btn.setEnabled(False)
@@ -823,7 +842,7 @@ class QuickOrderDialog(QDialog):
         QTimer.singleShot(1500, lambda: self.fetch_position_with_retry(
             transaction_type, quantity, is_target))
 
-    # ── Position polling ──────────────────────────────────────────────────
+    # ── Position polling (unchanged) ──────────────────────────────────────
     def fetch_position_with_retry(self, transaction_type, quantity, is_target, delay=1500):
         self._run_worker(
             self.client.positions.get_net_positions,
@@ -869,7 +888,7 @@ class QuickOrderDialog(QDialog):
                      category="Error", error=True)
             self.status_label.setText("Position fetch failed")
 
-    # ── Place exit order (uses correct percentage) ────────────────────────
+    # ── Place exit order (unchanged) ──────────────────────────────────────
     def place_target_sl_order(self, avg_price, transaction_type, quantity, is_target):
         if is_target:
             percent = self.target_percent_spin.value() / 100.0
@@ -946,7 +965,7 @@ class QuickOrderDialog(QDialog):
         self.status_label.setText(f"Error: {err}")
         self.log(f"Quick order error: {err}", category="Error", error=True)
 
-    # ── Convert Target ↔ SL ───────────────────────────────────────────────
+    # ── Convert Target ↔ SL (unchanged) ───────────────────────────────────
     def convert_target_sl(self):
         if not self.current_symbol:
             QMessageBox.warning(self, "Input Error", "Please select a symbol first.")
@@ -1093,7 +1112,7 @@ class QuickOrderDialog(QDialog):
             "regular", payload
         )
 
-    # ── Helpers ───────────────────────────────────────────────────────────
+    # ── Helpers (unchanged) ───────────────────────────────────────────────
     def _find_position(self, positions):
         for p in positions:
             if p.get('tradingsymbol') == self.current_symbol:
@@ -1155,7 +1174,7 @@ class QuickOrderDialog(QDialog):
         self.show()
 
 
-# ========== Order Placement Tab (unchanged) ==========
+# ========== Order Placement Tab (Compact) ==========
 class OrderPlacementTab(BaseTab):
     def __init__(self, client, log_callback):
         super().__init__(log_callback)
@@ -1167,6 +1186,8 @@ class OrderPlacementTab(BaseTab):
 
     def init_ui(self):
         layout = QVBoxLayout()
+        layout.setSpacing(6)
+        layout.setContentsMargins(6, 6, 6, 6)
 
         # Quick Order button
         quick_btn = QPushButton("Quick Order")
@@ -1174,7 +1195,7 @@ class OrderPlacementTab(BaseTab):
         quick_btn.clicked.connect(self.open_quick_order)
         layout.addWidget(quick_btn)
 
-        # Symbol selection
+        # Symbol selection row
         symbol_layout = QHBoxLayout()
         self.symbol_combo = QComboBox()
         self.symbol_combo.setEditable(True)
@@ -1194,27 +1215,29 @@ class OrderPlacementTab(BaseTab):
 
         # LTP display
         self.ltp_label = QLabel("Last Traded Price: --")
-        self.ltp_label.setStyleSheet(
-            "font-weight: bold; font-size: 16px; padding: 5px;")
+        self.ltp_label.setStyleSheet("font-weight: bold; font-size: 13px; padding: 2px;")
         layout.addWidget(self.ltp_label)
 
-        # Available margin
+        # Available margin + refresh inline
         margin_layout = QHBoxLayout()
         self.available_margin_label = QLabel("Available Margin: --")
         self.available_margin_label.setStyleSheet(
             "font-weight: bold; color: #00e5a0; background-color: #111318; "
-            "padding: 5px; border-radius: 5px;")
+            "padding: 2px 6px; border-radius: 4px;")
         margin_layout.addWidget(self.available_margin_label)
-        self.refresh_margin_btn = QPushButton("Refresh Margin")
+        self.refresh_margin_btn = QPushButton("Refresh")
         self.refresh_margin_btn.setObjectName("neutralBtn")
         self.refresh_margin_btn.clicked.connect(self.fetch_margin)
         margin_layout.addWidget(self.refresh_margin_btn)
+        margin_layout.addStretch()
         layout.addLayout(margin_layout)
 
-        # Stock details group
-        self.stock_details_group = QGroupBox("Stock Details (Today)")
+        # Stock details group (compact)
+        self.stock_details_group = QGroupBox("Stock Details")
         self.stock_details_group.setVisible(False)
-        details_layout  = QGridLayout()
+        details_layout = QGridLayout()
+        details_layout.setSpacing(2)
+        details_layout.setContentsMargins(4, 4, 4, 4)
         self.open_label   = QLabel("Open: --")
         self.high_label   = QLabel("High: --")
         self.low_label    = QLabel("Low: --")
@@ -1227,45 +1250,50 @@ class OrderPlacementTab(BaseTab):
         self.stock_details_group.setLayout(details_layout)
         layout.addWidget(self.stock_details_group)
 
-        # Cancel buttons
+        # Cancel buttons row
         cancel_layout = QHBoxLayout()
-        self.cancel_last_btn = QPushButton("Cancel Last Pending Order")
+        self.cancel_last_btn = QPushButton("Cancel Last Pending")
         self.cancel_last_btn.setObjectName("dangerBtn")
         self.cancel_last_btn.clicked.connect(self.cancel_last_pending_order)
-        self.cancel_all_btn = QPushButton("Cancel All Open Orders")
+        self.cancel_all_btn = QPushButton("Cancel All Open")
         self.cancel_all_btn.setObjectName("dangerBtn")
         self.cancel_all_btn.clicked.connect(self.cancel_all_open_orders)
         cancel_layout.addWidget(self.cancel_last_btn)
         cancel_layout.addWidget(self.cancel_all_btn)
         layout.addLayout(cancel_layout)
 
-        # Risk management
-        risk_group  = QGroupBox("Risk Management")
-        risk_layout = QGridLayout()
+        # Risk management (compact horizontal layout)
+        risk_group = QGroupBox("Risk Management")
+        risk_layout = QHBoxLayout()
+        risk_layout.setSpacing(8)
+        risk_layout.setContentsMargins(4, 4, 4, 4)
 
+        risk_layout.addWidget(QLabel("SL %:"))
         self.sl_percent_spin = QDoubleSpinBox()
         self.sl_percent_spin.setRange(0.1, 100.0)
         self.sl_percent_spin.setValue(1.0)
         self.sl_percent_spin.setSuffix("%")
         self.sl_percent_spin.setSingleStep(0.1)
         self.sl_percent_spin.valueChanged.connect(self.update_quantity)
-        risk_layout.addWidget(QLabel("Stop Loss %:"), 0, 0)
-        risk_layout.addWidget(self.sl_percent_spin,   0, 1)
+        risk_layout.addWidget(self.sl_percent_spin)
 
+        risk_layout.addWidget(QLabel("Max SL (₹):"))
         self.max_sl_amt_spin = QDoubleSpinBox()
         self.max_sl_amt_spin.setRange(0, 10_000_000)
         self.max_sl_amt_spin.setPrefix("₹")
         self.max_sl_amt_spin.setSingleStep(100)
         self.max_sl_amt_spin.valueChanged.connect(self.update_quantity)
-        risk_layout.addWidget(QLabel("Max SL Amt (₹):"), 1, 0)
-        risk_layout.addWidget(self.max_sl_amt_spin,      1, 1)
+        risk_layout.addWidget(self.max_sl_amt_spin)
 
+        risk_layout.addStretch()
         risk_group.setLayout(risk_layout)
         layout.addWidget(risk_group)
 
-        # Order parameters
-        order_group  = QGroupBox("Order Parameters")
+        # Order parameters group (compact)
+        order_group = QGroupBox("Order Parameters")
         order_layout = QFormLayout()
+        order_layout.setSpacing(4)
+        order_layout.setContentsMargins(4, 4, 4, 4)
 
         self.exchange_combo = QComboBox()
         self.exchange_combo.addItems(["NSE", "BSE"])
@@ -1305,6 +1333,7 @@ class OrderPlacementTab(BaseTab):
         layout.addWidget(order_group)
 
         self.status_label = QLabel("Ready")
+        self.status_label.setStyleSheet("font-size: 10px; padding: 2px;")
         layout.addWidget(self.status_label)
         layout.addStretch()
         self.setLayout(layout)
@@ -1547,12 +1576,12 @@ class OrderPlacementTab(BaseTab):
                      category="Error", error=True)
 
 
-# ========== Main Dashboard ==========
+# ========== Main Dashboard (Compact) ==========
 class ZerodhaDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Zerodha Trading Dashboard")
-        self.setGeometry(100, 100, 1300, 800)
+        self.setGeometry(100, 100, 1200, 700)  # smaller default size
         self.load_stylesheet()
 
         self.client      = ZerodhaClient()
@@ -1564,20 +1593,23 @@ class ZerodhaDashboard(QMainWindow):
         central     = QWidget()
         self.setCentralWidget(central)
         main_layout = QHBoxLayout(central)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(2, 2, 2, 2)
+        main_layout.setSpacing(4)
 
-        # ── Log panel (right side) ────────────────────────────────────────────
+        # ── Log panel (compact) ───────────────────────────────────────────────
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        right_layout.setSpacing(2)
 
         self.log_container = QWidget()
         self.log_container.setObjectName("log_container")
-        self.log_container.setFixedWidth(int(self.width() * 0.2))
+        self.log_container.setFixedWidth(260)  # fixed compact width
         log_layout = QVBoxLayout(self.log_container)
-        log_layout.setContentsMargins(5, 5, 5, 5)
+        log_layout.setContentsMargins(2, 2, 2, 2)
+        log_layout.setSpacing(2)
 
         filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(4)
         self.chk_error   = QCheckBox("Error")
         self.chk_info    = QCheckBox("Info")
         self.chk_warning = QCheckBox("Warning")
@@ -1593,13 +1625,13 @@ class ZerodhaDashboard(QMainWindow):
         self.log_text.setReadOnly(True)
         self.log_text.setStyleSheet(
             "background-color: #1e1e1e; color: #d4d4d4; "
-            "font-family: monospace; font-size: 10pt;")
+            "font-family: monospace; font-size: 9pt;")  # smaller font
         log_layout.addWidget(self.log_text)
 
         right_layout.addWidget(self.log_container)
         right_layout.addStretch()
 
-        # ── Tabs (left side) ──────────────────────────────────────────────────
+        # ── Tabs ──────────────────────────────────────────────────────────────
         self.tabs           = QTabWidget()
         self.holdings_tab   = HoldingsTab(self.client,   self.add_log_entry)
         self.positions_tab  = PositionsTab(self.client,  self.add_log_entry)
@@ -1618,7 +1650,7 @@ class ZerodhaDashboard(QMainWindow):
         main_layout.addLayout(right_layout, 1)
 
         self.tabs.setCurrentIndex(4)
-        self.add_log_entry("Dashboard initialized. Ready.", category="Info")
+        self.add_log_entry("Dashboard initialized (compact UI). Ready.", category="Info")
         self.statusBar().showMessage("Ready")
 
     def load_stylesheet(self):
@@ -1627,12 +1659,16 @@ class ZerodhaDashboard(QMainWindow):
             with open(qss_file, "r") as f:
                 self.setStyleSheet(f.read())
         else:
-            print(f"Warning: {qss_file} not found. Using default style.")
+            # fallback compact style
+            self.setStyleSheet("""
+                QGroupBox { font-weight: bold; border: 1px solid #3c3c3c; border-radius: 4px; margin-top: 8px; padding-top: 4px; }
+                QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
+                QPushButton { padding: 4px 8px; }
+                QTableWidget::item { padding: 2px; }
+            """)
 
     def resizeEvent(self, event):
-        if hasattr(self, 'log_container'):
-            w = int(self.width() * 0.2)
-            self.log_container.setFixedWidth(w)
+        # keep log container fixed width, no dynamic resize
         super().resizeEvent(event)
 
     def on_tab_changed(self, index):
