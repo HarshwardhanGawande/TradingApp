@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
 
-from trading_client import ZerodhaClient
+from trading_client_cd import ZerodhaClient
 
 
 # ========== Worker Thread ==========
