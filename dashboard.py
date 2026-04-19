@@ -1,5 +1,7 @@
 """
-Zerodha Trading Dashboard - PyQt6 GUI (Compact UI with Volume Analysis Tab)
+Zerodha Trading Dashboard - PyQt6 GUI
+Tabs: Holdings, Positions, Orders, Funds, Place Order, Volume Analysis,
+      Market Summary (compact, single‑row controls), Pre‑open Summary (compact, single‑row controls)
 """
 
 import sys
@@ -13,7 +15,7 @@ from PyQt6.QtWidgets import (
     QTabWidget, QTableWidget, QTableWidgetItem, QLabel, QPushButton,
     QComboBox, QSpinBox, QDoubleSpinBox, QGroupBox, QFormLayout,
     QMessageBox, QHeaderView, QGridLayout, QTextEdit, QCheckBox,
-    QFrame, QDialog, QRadioButton
+    QFrame, QDialog, QRadioButton, QAbstractItemView, QButtonGroup
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
@@ -23,6 +25,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from trading_client import ZerodhaClient
+from zerodha_data import get_live_nse_data, get_pre_open_data_cached
 
 
 # ========== Worker Thread ==========
@@ -72,6 +75,8 @@ class HoldingsTab(BaseTab):
     def __init__(self, client, log_callback):
         super().__init__(log_callback)
         self.client = client
+        self.auto_refresh_timer = QTimer()
+        self.auto_refresh_timer.timeout.connect(self.refresh_data)
         self.init_ui()
         self.refresh_data()
 
@@ -104,14 +109,31 @@ class HoldingsTab(BaseTab):
         self.table.verticalHeader().setDefaultSectionSize(24)
         layout.addWidget(self.table)
 
-        btn_refresh = QPushButton("Refresh Holdings")
-        btn_refresh.setObjectName("neutralBtn")
-        btn_refresh.clicked.connect(self.refresh_data)
-        layout.addWidget(btn_refresh)
+        btn_layout = QHBoxLayout()
+        self.refresh_btn = QPushButton("Refresh Holdings")
+        self.refresh_btn.setObjectName("neutralBtn")
+        self.refresh_btn.clicked.connect(self.refresh_data)
+        btn_layout.addWidget(self.refresh_btn)
+
+        self.auto_refresh_cb = QCheckBox("Auto-refresh (30s)")
+        self.auto_refresh_cb.stateChanged.connect(self.toggle_auto_refresh)
+        btn_layout.addWidget(self.auto_refresh_cb)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
         self.setLayout(layout)
+
+    def toggle_auto_refresh(self, state):
+        if state == Qt.CheckState.Checked.value:
+            self.auto_refresh_timer.start(30000)
+            self.log("Holdings auto-refresh enabled (30s)", category="Info")
+        else:
+            self.auto_refresh_timer.stop()
+            self.log("Holdings auto-refresh disabled", category="Info")
 
     def refresh_data(self):
         self.log("Fetching holdings...", category="Info")
+        self.refresh_btn.setEnabled(False)
         self._run_worker(
             self.client.get_holdings_df,
             self.update_table,
@@ -119,6 +141,7 @@ class HoldingsTab(BaseTab):
         )
 
     def update_table(self, df: pd.DataFrame):
+        self.refresh_btn.setEnabled(True)
         if df.empty:
             self.table.setRowCount(0)
             self.table.setColumnCount(0)
@@ -204,6 +227,8 @@ class PositionsTab(BaseTab):
     def __init__(self, client, log_callback):
         super().__init__(log_callback)
         self.client = client
+        self.auto_refresh_timer = QTimer()
+        self.auto_refresh_timer.timeout.connect(self.refresh_data)
         self.init_ui()
         self.refresh_data()
 
@@ -227,14 +252,31 @@ class PositionsTab(BaseTab):
         self.table.verticalHeader().setDefaultSectionSize(24)
         layout.addWidget(self.table)
 
-        btn = QPushButton("Refresh Positions")
-        btn.setObjectName("neutralBtn")
-        btn.clicked.connect(self.refresh_data)
-        layout.addWidget(btn)
+        btn_layout = QHBoxLayout()
+        self.refresh_btn = QPushButton("Refresh Positions")
+        self.refresh_btn.setObjectName("neutralBtn")
+        self.refresh_btn.clicked.connect(self.refresh_data)
+        btn_layout.addWidget(self.refresh_btn)
+
+        self.auto_refresh_cb = QCheckBox("Auto-refresh (30s)")
+        self.auto_refresh_cb.stateChanged.connect(self.toggle_auto_refresh)
+        btn_layout.addWidget(self.auto_refresh_cb)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
         self.setLayout(layout)
+
+    def toggle_auto_refresh(self, state):
+        if state == Qt.CheckState.Checked.value:
+            self.auto_refresh_timer.start(30000)
+            self.log("Positions auto-refresh enabled (30s)", category="Info")
+        else:
+            self.auto_refresh_timer.stop()
+            self.log("Positions auto-refresh disabled", category="Info")
 
     def refresh_data(self):
         self.log("Fetching positions...", category="Info")
+        self.refresh_btn.setEnabled(False)
         self._run_worker(
             self.client.positions.get_net_positions,
             self.update_table,
@@ -242,6 +284,7 @@ class PositionsTab(BaseTab):
         )
 
     def update_table(self, positions):
+        self.refresh_btn.setEnabled(True)
         if not positions:
             self.table.setRowCount(0)
             self.table.setColumnCount(0)
@@ -306,6 +349,8 @@ class OrdersTab(BaseTab):
     def __init__(self, client, log_callback):
         super().__init__(log_callback)
         self.client = client
+        self.auto_refresh_timer = QTimer()
+        self.auto_refresh_timer.timeout.connect(self.refresh_data)
         self.init_ui()
         self.refresh_data()
 
@@ -354,14 +399,31 @@ class OrdersTab(BaseTab):
         self.table.verticalHeader().setDefaultSectionSize(24)
         layout.addWidget(self.table)
 
-        btn_refresh = QPushButton("Refresh Orders")
-        btn_refresh.setObjectName("neutralBtn")
-        btn_refresh.clicked.connect(self.refresh_data)
-        layout.addWidget(btn_refresh)
+        btn_layout = QHBoxLayout()
+        self.refresh_btn = QPushButton("Refresh Orders")
+        self.refresh_btn.setObjectName("neutralBtn")
+        self.refresh_btn.clicked.connect(self.refresh_data)
+        btn_layout.addWidget(self.refresh_btn)
+
+        self.auto_refresh_cb = QCheckBox("Auto-refresh (30s)")
+        self.auto_refresh_cb.stateChanged.connect(self.toggle_auto_refresh)
+        btn_layout.addWidget(self.auto_refresh_cb)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
         self.setLayout(layout)
+
+    def toggle_auto_refresh(self, state):
+        if state == Qt.CheckState.Checked.value:
+            self.auto_refresh_timer.start(30000)
+            self.log("Orders auto-refresh enabled (30s)", category="Info")
+        else:
+            self.auto_refresh_timer.stop()
+            self.log("Orders auto-refresh disabled", category="Info")
 
     def refresh_data(self):
         self.log("Fetching all orders...", category="Info")
+        self.refresh_btn.setEnabled(False)
         self._run_worker(
             self.client.orders.get_all_orders,
             self.update_table,
@@ -369,6 +431,7 @@ class OrdersTab(BaseTab):
         )
 
     def update_table(self, orders):
+        self.refresh_btn.setEnabled(True)
         if not orders:
             self.table.setRowCount(0)
             self.table.setColumnCount(0)
@@ -444,6 +507,8 @@ class FundsTab(BaseTab):
     def __init__(self, client, log_callback):
         super().__init__(log_callback)
         self.client = client
+        self.auto_refresh_timer = QTimer()
+        self.auto_refresh_timer.timeout.connect(self.refresh_data)
         self.init_ui()
         self.refresh_data()
 
@@ -477,15 +542,32 @@ class FundsTab(BaseTab):
         card_layout.addStretch()
         layout.addLayout(card_layout)
 
-        btn_refresh = QPushButton("Refresh Funds")
-        btn_refresh.setObjectName("neutralBtn")
-        btn_refresh.clicked.connect(self.refresh_data)
-        layout.addWidget(btn_refresh)
+        btn_layout = QHBoxLayout()
+        self.refresh_btn = QPushButton("Refresh Funds")
+        self.refresh_btn.setObjectName("neutralBtn")
+        self.refresh_btn.clicked.connect(self.refresh_data)
+        btn_layout.addWidget(self.refresh_btn)
+
+        self.auto_refresh_cb = QCheckBox("Auto-refresh (30s)")
+        self.auto_refresh_cb.stateChanged.connect(self.toggle_auto_refresh)
+        btn_layout.addWidget(self.auto_refresh_cb)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
         layout.addStretch()
         self.setLayout(layout)
 
+    def toggle_auto_refresh(self, state):
+        if state == Qt.CheckState.Checked.value:
+            self.auto_refresh_timer.start(30000)
+            self.log("Funds auto-refresh enabled (30s)", category="Info")
+        else:
+            self.auto_refresh_timer.stop()
+            self.log("Funds auto-refresh disabled", category="Info")
+
     def refresh_data(self):
         self.log("Fetching margin details...", category="Info")
+        self.refresh_btn.setEnabled(False)
         self._run_worker(
             self.client.get_margin_summary,
             self.update_funds,
@@ -493,13 +575,14 @@ class FundsTab(BaseTab):
         )
 
     def update_funds(self, summary: Dict):
+        self.refresh_btn.setEnabled(True)
         self.available_value.setText(f"₹{summary.get('available_margin', 0):,.2f}")
         self.used_value.setText(     f"₹{summary.get('used_margin',       0):,.2f}")
         self.opening_value.setText(  f"₹{summary.get('opening_balance',   0):,.2f}")
         self.log("Funds updated.", category="Success")
 
 
-# ========== Quick Order Dialog (Compact) ==========
+# ========== Quick Order Dialog ==========
 class QuickOrderDialog(QDialog):
     def __init__(self, client, log_callback, parent=None):
         super().__init__(parent)
@@ -1169,7 +1252,7 @@ class QuickOrderDialog(QDialog):
         self.show()
 
 
-# ========== Order Placement Tab (Compact — NO volume section) ==========
+# ========== Order Placement Tab ==========
 class OrderPlacementTab(BaseTab):
     def __init__(self, client, log_callback):
         super().__init__(log_callback)
@@ -1572,7 +1655,7 @@ class OrderPlacementTab(BaseTab):
                      category="Error", error=True)
 
 
-# ========== Volume Analysis Tab (Standalone) ==========
+# ========== Volume Analysis Tab ==========
 class VolumeAnalysisTab(BaseTab):
     def __init__(self, client, log_callback):
         super().__init__(log_callback)
@@ -1585,13 +1668,11 @@ class VolumeAnalysisTab(BaseTab):
         layout.setSpacing(8)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        # ── Title ──────────────────────────────────────────────────────────
         title_lbl = QLabel("📊 Volume Analysis")
         title_lbl.setStyleSheet(
             "font-weight: bold; font-size: 14px; color: #c0c8d8; padding: 2px 0;")
         layout.addWidget(title_lbl)
 
-        # ── Symbol + Fetch row ─────────────────────────────────────────────
         symbol_layout = QHBoxLayout()
         symbol_layout.setSpacing(8)
         symbol_layout.addWidget(QLabel("Symbol:"))
@@ -1611,7 +1692,6 @@ class VolumeAnalysisTab(BaseTab):
         symbol_layout.addWidget(self.fetch_btn)
         layout.addLayout(symbol_layout)
 
-        # ── Metrics cards row ──────────────────────────────────────────────
         self.metrics_frame = QFrame()
         self.metrics_frame.setVisible(False)
         metrics_layout = QHBoxLayout(self.metrics_frame)
@@ -1644,7 +1724,6 @@ class VolumeAnalysisTab(BaseTab):
         metrics_layout.addWidget(make_vol_card("1-Month Avg",       "card_1m",    "#f76a8a"))
         layout.addWidget(self.metrics_frame)
 
-        # ── Ratio indicators ───────────────────────────────────────────────
         self.ratios_frame = QFrame()
         self.ratios_frame.setVisible(False)
         ratios_layout = QHBoxLayout(self.ratios_frame)
@@ -1662,7 +1741,6 @@ class VolumeAnalysisTab(BaseTab):
         ratios_layout.addStretch()
         layout.addWidget(self.ratios_frame)
 
-        # ── Matplotlib chart ───────────────────────────────────────────────
         self.chart_frame = QFrame()
         self.chart_frame.setVisible(False)
         chart_layout = QVBoxLayout(self.chart_frame)
@@ -1674,7 +1752,6 @@ class VolumeAnalysisTab(BaseTab):
         chart_layout.addWidget(self.canvas)
         layout.addWidget(self.chart_frame)
 
-        # ── Status label ───────────────────────────────────────────────────
         self.status_label = QLabel("Select a symbol and click Fetch Volume Analysis.")
         self.status_label.setStyleSheet("font-size: 10px; color: #4a5060; padding: 2px;")
         layout.addWidget(self.status_label)
@@ -1682,7 +1759,6 @@ class VolumeAnalysisTab(BaseTab):
         layout.addStretch()
         self.setLayout(layout)
 
-    # ── Fetch & compute ───────────────────────────────────────────────────
     def fetch_volume_analysis(self):
         symbol = self.symbol_combo.currentText().strip().upper()
         if not symbol:
@@ -1727,7 +1803,6 @@ class VolumeAnalysisTab(BaseTab):
 
         daily_vol = [(c[0][:10], int(c[5])) for c in candles]
 
-        # Today's intraday volume
         minute_url  = (f"https://kite.zerodha.com/oms/instruments/historical"
                        f"/{instrument_id}/minute")
         params_min  = {"user_id": user_id, "oi": "1",
@@ -1758,7 +1833,6 @@ class VolumeAnalysisTab(BaseTab):
         avg_1m  = int(sum(month1_vols) / len(month1_vols)) if month1_vols else 0
         prev_day = hist_days[-2][1] if len(hist_days) >= 2 else hist_days[-1][1]
 
-        # Last 22 trading days for sparkline
         recent_days = hist_days[-22:]
 
         return {
@@ -1770,7 +1844,7 @@ class VolumeAnalysisTab(BaseTab):
             "avg_2w":      avg_2w,
             "avg_1m":      avg_1m,
             "symbol":      symbol,
-            "recent_days": recent_days,   # list of (date_str, volume)
+            "recent_days": recent_days,
         }
 
     def on_volume_fetched(self, result):
@@ -1788,7 +1862,6 @@ class VolumeAnalysisTab(BaseTab):
         w2    = result["avg_2w"]
         m1    = result["avg_1m"]
 
-        # Update metric cards
         self.card_today.setText(fmt(today))
         self.card_prev.setText(fmt(prev))
         self.card_1w.setText(fmt(w1))
@@ -1796,14 +1869,12 @@ class VolumeAnalysisTab(BaseTab):
         self.card_1m.setText(fmt(m1))
         self.metrics_frame.setVisible(True)
 
-        # Ratio labels
         def ratio_text(label, val, ref, ref_name):
             if ref > 0:
                 r = val / ref
                 arrow = "▲" if r >= 1 else "▼"
                 color = "#00e5a0" if r >= 1 else "#ff4d6d"
-                label.setText(
-                    f"vs {ref_name}: {arrow} {r:.2f}x")
+                label.setText(f"vs {ref_name}: {arrow} {r:.2f}x")
                 label.setStyleSheet(
                     f"font-size: 11px; padding: 3px 10px; border-radius: 4px; "
                     f"background-color: #1a1d24; color: {color};")
@@ -1813,18 +1884,15 @@ class VolumeAnalysisTab(BaseTab):
         ratio_text(self.ratio_vs_1m,   today, m1,   "1M Avg")
         self.ratios_frame.setVisible(True)
 
-        # ── Draw chart ────────────────────────────────────────────────────
         self.figure.clear()
         fig = self.figure
         fig.patch.set_facecolor('#0d0f14')
 
-        # Two subplots: bar comparison (left) + recent history line (right)
         ax1 = fig.add_subplot(1, 2, 1)
         ax2 = fig.add_subplot(1, 2, 2)
         fig.subplots_adjust(left=0.05, right=0.97, top=0.88, bottom=0.12,
                             wspace=0.35)
 
-        # — Left: horizontal bar comparison —
         categories = ['1M Avg', '2W Avg', '1W Avg', 'Prev Day', result['today_label']]
         values     = [m1, w2, w1, prev, today]
         colors_bar = ['#f76a8a', '#f7a26a', '#7c6af7', '#00b8ff', '#00e5a0']
@@ -1842,15 +1910,13 @@ class VolumeAnalysisTab(BaseTab):
         ax1.xaxis.set_major_formatter(
             plt.FuncFormatter(lambda x, _: fmt(int(x))))
 
-        # — Right: 22-day volume history —
         recent = result.get("recent_days", [])
         if recent:
-            dates  = [r[0][-5:] for r in recent]   # MM-DD
+            dates  = [r[0][-5:] for r in recent]
             vols   = [r[1]      for r in recent]
             bar_colors = ['#00e5a0' if v >= (m1 or 1) else '#3a3f50' for v in vols]
             x_pos = list(range(len(dates)))
             ax2.bar(x_pos, vols, color=bar_colors, width=0.75)
-            # Avg line
             if m1 > 0:
                 ax2.axhline(m1, color='#f76a8a', linewidth=1.0,
                             linestyle='--', label='1M Avg')
@@ -1873,7 +1939,6 @@ class VolumeAnalysisTab(BaseTab):
             ax2.legend(fontsize=7, facecolor='#111318',
                        labelcolor='#c0c8d8', framealpha=0.6)
 
-        # Overall title
         holiday_note = "  ⚠ Holiday — showing last trading day" if result["is_holiday"] else ""
         fig.suptitle(
             f"Volume Analysis — {result['symbol']}{holiday_note}",
@@ -1895,12 +1960,734 @@ class VolumeAnalysisTab(BaseTab):
         QMessageBox.warning(self, "Volume Analysis Failed", str(err))
 
 
+# ========== Market Summary Tab (Single Row Controls, Exclude FO) ==========
+class MarketSummaryTab(BaseTab):
+    def __init__(self, client, log_callback):
+        super().__init__(log_callback)
+        self.client = client
+        self.df = pd.DataFrame()
+        self.advance_count = 0
+        self.decline_count = 0
+        self.adv_turnover_pct = 0
+        self.dec_turnover_pct = 0
+        self.auto_refresh_timer = QTimer()
+        self.auto_refresh_timer.timeout.connect(self.refresh_data)
+
+        # Load F&O symbols (once)
+        self.fno_symbols = set()
+        try:
+            fno_csv = "symbol_data/fno.csv"
+            if os.path.exists(fno_csv):
+                fno_df = pd.read_csv(fno_csv)
+                sym_col = "SYMBOL" if "SYMBOL" in fno_df.columns else fno_df.columns[0]
+                self.fno_symbols = set(fno_df[sym_col].str.strip().str.upper())
+                self.log(f"Loaded {len(self.fno_symbols)} F&O symbols", category="Info")
+            else:
+                self.log(f"F&O file not found: {fno_csv}", category="Warning")
+        except Exception as e:
+            self.log(f"Error loading F&O symbols: {e}", category="Warning")
+
+        self.init_ui()
+        self.refresh_data()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        layout.setSpacing(6)
+        layout.setContentsMargins(6, 6, 6, 6)
+
+        # ──────────────────────────────────────────────────────────────────
+        # Single row for all controls
+        # ──────────────────────────────────────────────────────────────────
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(8)
+
+        controls_layout.addWidget(QLabel("Index:"))
+        self.index_group = QButtonGroup(self)
+        self.index_group.setExclusive(True)
+        self.index_checkboxes = {}
+        index_list = ["NIFTY 50", "NIFTY 500", "FO", "NIFTY BANK", "IT", "AUTO", "ENERGY", "OIL&GAS"]
+        for idx_name in index_list:
+            cb = QCheckBox(idx_name)
+            self.index_group.addButton(cb)
+            self.index_checkboxes[idx_name] = cb
+            controls_layout.addWidget(cb)
+        self.index_checkboxes["NIFTY 500"].setChecked(True)
+
+        self.exclude_fno_cb = QCheckBox("Exclude FO")
+        self.exclude_fno_cb.setEnabled(False)
+        self.exclude_fno_cb.stateChanged.connect(self.refresh_data)
+        controls_layout.addWidget(self.exclude_fno_cb)
+
+        controls_layout.addStretch()
+
+        self.refresh_btn = QPushButton("🔄 Refresh")
+        self.refresh_btn.clicked.connect(self.refresh_data)
+        controls_layout.addWidget(self.refresh_btn)
+
+        self.auto_refresh_cb = QCheckBox("Auto-refresh (30s)")
+        self.auto_refresh_cb.stateChanged.connect(self.toggle_auto_refresh)
+        controls_layout.addWidget(self.auto_refresh_cb)
+
+        layout.addLayout(controls_layout)
+
+        # Connect index checkboxes AFTER all widgets are created
+        for cb in self.index_checkboxes.values():
+            cb.toggled.connect(self.on_index_changed)
+
+        # ──────────────────────────────────────────────────────────────────
+        # Metrics cards (compact row)
+        # ──────────────────────────────────────────────────────────────────
+        metrics_layout = QHBoxLayout()
+        metrics_layout.setSpacing(6)
+        self.adv_label = QLabel("Advance: --")
+        self.dec_label = QLabel("Decline: --")
+        self.net_label = QLabel("Net: --")
+        self.adv_turn_label = QLabel("Adv Turnover: --%")
+        self.dec_turn_label = QLabel("Dec Turnover: --%")
+        for lbl in [self.adv_label, self.dec_label, self.net_label, self.adv_turn_label, self.dec_turn_label]:
+            lbl.setStyleSheet("background-color: #111318; border-radius: 4px; padding: 4px 6px; font-weight: bold; font-size: 11px; color: #e0e0e0;")
+            metrics_layout.addWidget(lbl)
+        layout.addLayout(metrics_layout)
+
+        # ──────────────────────────────────────────────────────────────────
+        # Three equal columns
+        # ──────────────────────────────────────────────────────────────────
+        columns_layout = QHBoxLayout()
+        columns_layout.setSpacing(8)
+
+        self.advdec_group = QGroupBox("Advance vs Decline")
+        self.advdec_canvas = FigureCanvas(Figure(figsize=(2.8, 2.2), facecolor='#111318'))
+        advdec_layout = QVBoxLayout(self.advdec_group)
+        advdec_layout.addWidget(self.advdec_canvas)
+        columns_layout.addWidget(self.advdec_group, 1)
+
+        self.turnover_group = QGroupBox("Turnover Flow %")
+        self.turnover_canvas = FigureCanvas(Figure(figsize=(2.8, 2.2), facecolor='#111318'))
+        turnover_layout = QVBoxLayout(self.turnover_group)
+        turnover_layout.addWidget(self.turnover_canvas)
+        columns_layout.addWidget(self.turnover_group, 1)
+
+        self.top_group = QGroupBox("🏆 Top Active by Value")
+        top_layout = QVBoxLayout(self.top_group)
+        filter_layout = QHBoxLayout()
+        self.show_gainers_cb = QCheckBox("Show Gainers")
+        self.show_gainers_cb.setChecked(True)
+        self.show_gainers_cb.stateChanged.connect(self.update_top_table)
+        self.show_losers_cb = QCheckBox("Show Losers")
+        self.show_losers_cb.setChecked(True)
+        self.show_losers_cb.stateChanged.connect(self.update_top_table)
+        filter_layout.addWidget(self.show_gainers_cb)
+        filter_layout.addWidget(self.show_losers_cb)
+        filter_layout.addStretch()
+        top_layout.addLayout(filter_layout)
+
+        self.top_table = QTableWidget()
+        self.top_table.setAlternatingRowColors(True)
+        self.top_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.top_table.verticalHeader().setVisible(False)
+        top_layout.addWidget(self.top_table)
+        columns_layout.addWidget(self.top_group, 1)
+
+        layout.addLayout(columns_layout)
+
+        # Full data table (expander)
+        self.full_table_group = QGroupBox("📋 Full Index Data")
+        self.full_table_group.setCheckable(True)
+        self.full_table_group.setChecked(False)
+        self.full_table = QTableWidget()
+        full_layout = QVBoxLayout(self.full_table_group)
+        full_layout.addWidget(self.full_table)
+        layout.addWidget(self.full_table_group)
+
+        self.status_label = QLabel("Ready")
+        self.status_label.setStyleSheet("font-size: 10px; color: #4a5060;")
+        layout.addWidget(self.status_label)
+
+        self.setLayout(layout)
+
+    def on_index_changed(self):
+        current_index = self.get_selected_index()
+        self.exclude_fno_cb.setEnabled(current_index == "NIFTY 500")
+        if not self.exclude_fno_cb.isEnabled():
+            self.exclude_fno_cb.setChecked(False)
+        self.refresh_data()
+
+    def get_selected_index(self):
+        for name, cb in self.index_checkboxes.items():
+            if cb.isChecked():
+                if name == "FO":
+                    return "SECURITIES IN F&O"
+                return name
+        return "NIFTY 500"
+
+    def toggle_auto_refresh(self, state):
+        if state == Qt.CheckState.Checked.value:
+            self.auto_refresh_timer.start(30000)
+            self.log("Market Summary auto-refresh enabled (30s)", category="Info")
+        else:
+            self.auto_refresh_timer.stop()
+            self.log("Market Summary auto-refresh disabled", category="Info")
+
+    def refresh_data(self):
+        index = self.get_selected_index()
+        self.log(f"Fetching market summary for {index}...", category="Info")
+        self.refresh_btn.setEnabled(False)
+        self.status_label.setText("Fetching data...")
+        self._run_worker(
+            self._fetch_data,
+            self.on_data_fetched,
+            self.on_data_error,
+            index
+        )
+
+    def _fetch_data(self, index):
+        result = get_live_nse_data(index)
+        if isinstance(result, tuple) and len(result) == 5:
+            return result
+        else:
+            raise Exception("Unexpected data format from get_live_nse_data")
+
+    def on_data_fetched(self, result):
+        df, adv, dec, adv_turnover_val, dec_turnover_val = result
+
+        if "%CHNG" in df.columns:
+            df["%CHNG"] = df["%CHNG"].fillna(0.0)
+
+        if self.get_selected_index() == "NIFTY 500" and self.exclude_fno_cb.isChecked():
+            before = len(df)
+            df = df[~df["SYMBOL"].str.strip().str.upper().isin(self.fno_symbols)]
+            self.log(f"Excluded {before - len(df)} F&O stocks from NIFTY 500", category="Info")
+
+        self.df = df
+        self.advance_count = (df["%CHNG"] > 0).sum()
+        self.decline_count = (df["%CHNG"] < 0).sum()
+        adv_turn = df[df["%CHNG"] > 0]["VALUE"].sum()
+        dec_turn = df[df["%CHNG"] < 0]["VALUE"].sum()
+        total_turn = adv_turn + dec_turn
+        self.adv_turnover_pct = (adv_turn / total_turn * 100) if total_turn else 0
+        self.dec_turnover_pct = (dec_turn / total_turn * 100) if total_turn else 0
+
+        total = self.advance_count + self.decline_count
+        net = self.advance_count - self.decline_count
+        self.adv_label.setText(f"Advance: {self.advance_count} ({self.advance_count/total*100:.1f}%)" if total else "Advance: --")
+        self.dec_label.setText(f"Decline: {self.decline_count} ({self.decline_count/total*100:.1f}%)" if total else "Decline: --")
+        self.net_label.setText(f"Net: {'+' if net>=0 else ''}{net}")
+        self.adv_turn_label.setText(f"Adv Turnover: {self.adv_turnover_pct:.1f}%")
+        self.dec_turn_label.setText(f"Dec Turnover: {self.dec_turnover_pct:.1f}%")
+
+        if net > 0:
+            self.net_label.setStyleSheet("background-color: #111318; border-radius: 4px; padding: 4px 6px; font-weight: bold; font-size: 11px; color: #00e5a0;")
+        elif net < 0:
+            self.net_label.setStyleSheet("background-color: #111318; border-radius: 4px; padding: 4px 6px; font-weight: bold; font-size: 11px; color: #ff4d6d;")
+        else:
+            self.net_label.setStyleSheet("background-color: #111318; border-radius: 4px; padding: 4px 6px; font-weight: bold; font-size: 11px; color: #e0e0e0;")
+
+        self.update_adv_dec_chart()
+        self.update_turnover_chart()
+        self.update_top_table()
+        self.update_full_table()
+
+        self.refresh_btn.setEnabled(True)
+        self.status_label.setText(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
+        self.log(f"Market summary refreshed. Advance: {self.advance_count}, Decline: {self.decline_count}", category="Success")
+
+    def update_adv_dec_chart(self):
+        fig = self.advdec_canvas.figure
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#111318')
+        fig.patch.set_facecolor('#111318')
+        total = self.advance_count + self.decline_count
+        if total == 0:
+            ax.text(0.5, 0.5, "No data", ha='center', va='center', color='white')
+            self.advdec_canvas.draw()
+            return
+        adv_pct = (self.advance_count / total * 100)
+        dec_pct = (self.decline_count / total * 100)
+        net = adv_pct - dec_pct
+        categories = ['Advance', 'Decline', 'Net Diff']
+        values = [adv_pct, dec_pct, abs(net)]
+        colors = ['#2ca02c', '#d62728', '#1f77b4' if net >= 0 else '#ff7f0e']
+        bars = ax.bar(categories, values, color=colors, width=0.6)
+        ax.bar_label(bars,
+                     labels=[f"{adv_pct:.0f}%", f"{dec_pct:.0f}%", f"{'+' if net>=0 else '-'}{abs(net):.0f}%"],
+                     padding=3, fontsize=8, color='white')
+        ax.set_ylim(0, max(100, max(values)+10))
+        ax.set_ylabel("% of Total Stocks", color='white', fontsize=8)
+        ax.tick_params(colors='white', labelsize=7)
+        ax.set_title("Advance vs Decline", color='white', fontsize=9)
+        fig.tight_layout()
+        self.advdec_canvas.draw()
+
+    def update_turnover_chart(self):
+        fig = self.turnover_canvas.figure
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#111318')
+        fig.patch.set_facecolor('#111318')
+        adv_pct = self.adv_turnover_pct
+        dec_pct = self.dec_turnover_pct
+        net = adv_pct - dec_pct
+        categories = ['Advance', 'Decline', 'Net Diff']
+        values = [adv_pct, dec_pct, abs(net)]
+        colors = ['#2ca02c', '#d62728', '#1f77b4' if net >= 0 else '#ff7f0e']
+        bars = ax.bar(categories, values, color=colors, width=0.6)
+        ax.bar_label(bars,
+                     labels=[f"{adv_pct:.0f}%", f"{dec_pct:.0f}%", f"{'+' if net>=0 else '-'}{abs(net):.0f}%"],
+                     padding=3, fontsize=8, color='white')
+        ax.set_ylim(0, max(100, max(values)+10))
+        ax.set_ylabel("% of Total Turnover", color='white', fontsize=8)
+        ax.tick_params(colors='white', labelsize=7)
+        ax.set_title("Turnover Flow %", color='white', fontsize=9)
+        fig.tight_layout()
+        self.turnover_canvas.draw()
+
+    def update_top_table(self):
+        self.top_table.clear()
+        show_gainers = self.show_gainers_cb.isChecked()
+        show_losers = self.show_losers_cb.isChecked()
+        if not show_gainers and not show_losers:
+            self.top_table.setRowCount(0)
+            self.top_table.setColumnCount(0)
+            return
+
+        if show_gainers and show_losers:
+            filtered_df = self.df
+        elif show_gainers:
+            filtered_df = self.df[self.df["%CHNG"] > 0]
+        else:
+            filtered_df = self.df[self.df["%CHNG"] < 0]
+
+        if filtered_df.empty:
+            self.top_table.setRowCount(0)
+            self.top_table.setColumnCount(0)
+            return
+
+        top_active = filtered_df.nlargest(15, "VALUE")[["SYMBOL", "VALUE", "%CHNG"]].reset_index(drop=True)
+        self.top_table.setRowCount(len(top_active))
+        self.top_table.setColumnCount(3)
+        self.top_table.setHorizontalHeaderLabels(["Symbol", "Value (Cr)", "% Change"])
+        for i, row in top_active.iterrows():
+            self.top_table.setItem(i, 0, QTableWidgetItem(row["SYMBOL"]))
+            val_item = QTableWidgetItem(f"{row['VALUE']:.0f}")
+            val_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.top_table.setItem(i, 1, val_item)
+            chng_item = QTableWidgetItem(f"{row['%CHNG']:.2f}%")
+            chng_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            if row["%CHNG"] > 0:
+                chng_item.setForeground(QColor("#2ca02c"))
+            elif row["%CHNG"] < 0:
+                chng_item.setForeground(QColor("#d62728"))
+            else:
+                chng_item.setForeground(QColor("#e0e0e0"))
+            self.top_table.setItem(i, 2, chng_item)
+        self.top_table.resizeColumnsToContents()
+        self.top_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+    def update_full_table(self):
+        self.full_table.clear()
+        df_display = self.df.sort_values("VALUE", ascending=False).reset_index(drop=True)
+        self.full_table.setRowCount(len(df_display))
+        self.full_table.setColumnCount(len(df_display.columns))
+        self.full_table.setHorizontalHeaderLabels(df_display.columns)
+        for i, row in df_display.iterrows():
+            for j, col in enumerate(df_display.columns):
+                val = row[col]
+                item = QTableWidgetItem(str(val))
+                if col in ("VALUE", "%CHNG"):
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                if col == "%CHNG":
+                    if val > 0:
+                        item.setForeground(QColor("#2ca02c"))
+                    elif val < 0:
+                        item.setForeground(QColor("#d62728"))
+                    else:
+                        item.setForeground(QColor("#e0e0e0"))
+                self.full_table.setItem(i, j, item)
+        self.full_table.resizeColumnsToContents()
+        self.full_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+    def on_data_error(self, err):
+        self.refresh_btn.setEnabled(True)
+        self.status_label.setText(f"Error: {err}")
+        self.log(f"Market summary error: {err}", category="Error", error=True)
+        self.auto_refresh_timer.stop()
+
+
+# ========== Pre-open Summary Tab (Single Row Controls, Price Filter as Radio) ==========
+class PreOpenSummaryTab(BaseTab):
+    def __init__(self, client, log_callback):
+        super().__init__(log_callback)
+        self.client = client
+        self.df = pd.DataFrame()
+        self.advance_count = 0
+        self.decline_count = 0
+        self.adv_turnover_pct = 0
+        self.dec_turnover_pct = 0
+        self.auto_refresh_timer = QTimer()
+        self.auto_refresh_timer.timeout.connect(self.refresh_data)
+        self.init_ui()
+        self.refresh_data()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        layout.setSpacing(6)
+        layout.setContentsMargins(6, 6, 6, 6)
+
+        # ──────────────────────────────────────────────────────────────────
+        # Single row for all controls
+        # ──────────────────────────────────────────────────────────────────
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(8)
+
+        controls_layout.addWidget(QLabel("Index Filter:"))
+        self.index_group = QButtonGroup(self)
+        self.index_group.setExclusive(True)
+        self.index_checkboxes = {}
+        index_list = ["ALL", "FO", "NIFTY", "BANKNIFTY", "OTHERS"]
+        for idx_name in index_list:
+            cb = QCheckBox(idx_name)
+            self.index_group.addButton(cb)
+            self.index_checkboxes[idx_name] = cb
+            controls_layout.addWidget(cb)
+        self.index_checkboxes["ALL"].setChecked(True)
+
+        controls_layout.addWidget(QLabel("   |   "))
+
+        controls_layout.addWidget(QLabel("Price Filter:"))
+        self.price_group = QButtonGroup(self)
+        self.price_group.setExclusive(True)
+        self.price_radio_no_filter = QRadioButton("No Filter")
+        self.price_radio_exclude_50 = QRadioButton("Exclude < ₹50")
+        self.price_radio_exclude_100 = QRadioButton("Exclude < ₹100")
+        self.price_radio_no_filter.setChecked(True)
+        self.price_group.addButton(self.price_radio_no_filter)
+        self.price_group.addButton(self.price_radio_exclude_50)
+        self.price_group.addButton(self.price_radio_exclude_100)
+        controls_layout.addWidget(self.price_radio_no_filter)
+        controls_layout.addWidget(self.price_radio_exclude_50)
+        controls_layout.addWidget(self.price_radio_exclude_100)
+
+        controls_layout.addStretch()
+
+        self.refresh_btn = QPushButton("🔄 Refresh")
+        self.refresh_btn.clicked.connect(self.refresh_data)
+        controls_layout.addWidget(self.refresh_btn)
+
+        self.auto_refresh_cb = QCheckBox("Auto-refresh (30s)")
+        self.auto_refresh_cb.stateChanged.connect(self.toggle_auto_refresh)
+        controls_layout.addWidget(self.auto_refresh_cb)
+
+        layout.addLayout(controls_layout)
+
+        # Connect index checkboxes and price radio buttons
+        for cb in self.index_checkboxes.values():
+            cb.toggled.connect(self.on_index_changed)
+        self.price_radio_no_filter.toggled.connect(self.on_price_filter_changed)
+        self.price_radio_exclude_50.toggled.connect(self.on_price_filter_changed)
+        self.price_radio_exclude_100.toggled.connect(self.on_price_filter_changed)
+
+        # ──────────────────────────────────────────────────────────────────
+        # Metrics cards (compact row)
+        # ──────────────────────────────────────────────────────────────────
+        metrics_layout = QHBoxLayout()
+        metrics_layout.setSpacing(6)
+        self.adv_label = QLabel("Advance: --")
+        self.dec_label = QLabel("Decline: --")
+        self.net_label = QLabel("Net: --")
+        self.adv_turn_label = QLabel("Adv Turnover: --%")
+        self.dec_turn_label = QLabel("Dec Turnover: --%")
+        for lbl in [self.adv_label, self.dec_label, self.net_label, self.adv_turn_label, self.dec_turn_label]:
+            lbl.setStyleSheet("background-color: #111318; border-radius: 4px; padding: 4px 6px; font-weight: bold; font-size: 11px; color: #e0e0e0;")
+            metrics_layout.addWidget(lbl)
+        layout.addLayout(metrics_layout)
+
+        # ──────────────────────────────────────────────────────────────────
+        # Three equal columns
+        # ──────────────────────────────────────────────────────────────────
+        columns_layout = QHBoxLayout()
+        columns_layout.setSpacing(8)
+
+        self.advdec_group = QGroupBox("Advance vs Decline")
+        self.advdec_canvas = FigureCanvas(Figure(figsize=(2.8, 2.2), facecolor='#111318'))
+        advdec_layout = QVBoxLayout(self.advdec_group)
+        advdec_layout.addWidget(self.advdec_canvas)
+        columns_layout.addWidget(self.advdec_group, 1)
+
+        self.turnover_group = QGroupBox("Turnover Flow %")
+        self.turnover_canvas = FigureCanvas(Figure(figsize=(2.8, 2.2), facecolor='#111318'))
+        turnover_layout = QVBoxLayout(self.turnover_group)
+        turnover_layout.addWidget(self.turnover_canvas)
+        columns_layout.addWidget(self.turnover_group, 1)
+
+        self.top_group = QGroupBox("🏆 Top Active by Value (Pre-open)")
+        top_layout = QVBoxLayout(self.top_group)
+        filter_layout = QHBoxLayout()
+        self.show_gainers_cb = QCheckBox("Show Gainers")
+        self.show_gainers_cb.setChecked(True)
+        self.show_gainers_cb.stateChanged.connect(self.update_top_table)
+        self.show_losers_cb = QCheckBox("Show Losers")
+        self.show_losers_cb.setChecked(True)
+        self.show_losers_cb.stateChanged.connect(self.update_top_table)
+        filter_layout.addWidget(self.show_gainers_cb)
+        filter_layout.addWidget(self.show_losers_cb)
+        filter_layout.addStretch()
+        top_layout.addLayout(filter_layout)
+
+        self.top_table = QTableWidget()
+        self.top_table.setAlternatingRowColors(True)
+        self.top_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.top_table.verticalHeader().setVisible(False)
+        top_layout.addWidget(self.top_table)
+        columns_layout.addWidget(self.top_group, 1)
+
+        layout.addLayout(columns_layout)
+
+        # Full data table (expander)
+        self.full_table_group = QGroupBox("📋 Full Pre-open Data")
+        self.full_table_group.setCheckable(True)
+        self.full_table_group.setChecked(False)
+        self.full_table = QTableWidget()
+        full_layout = QVBoxLayout(self.full_table_group)
+        full_layout.addWidget(self.full_table)
+        layout.addWidget(self.full_table_group)
+
+        self.status_label = QLabel("Ready")
+        self.status_label.setStyleSheet("font-size: 10px; color: #4a5060;")
+        layout.addWidget(self.status_label)
+
+        self.setLayout(layout)
+
+    def on_index_changed(self):
+        self.refresh_data()
+
+    def on_price_filter_changed(self):
+        self.refresh_data()
+
+    def get_selected_index(self):
+        for name, cb in self.index_checkboxes.items():
+            if cb.isChecked():
+                return name
+        return "ALL"
+
+    def get_price_filter(self):
+        if self.price_radio_exclude_50.isChecked():
+            return "Exclude < ₹50"
+        elif self.price_radio_exclude_100.isChecked():
+            return "Exclude < ₹100"
+        else:
+            return "No Filter"
+
+    def toggle_auto_refresh(self, state):
+        if state == Qt.CheckState.Checked.value:
+            self.auto_refresh_timer.start(30000)
+            self.log("Pre-open Summary auto-refresh enabled (30s)", category="Info")
+        else:
+            self.auto_refresh_timer.stop()
+            self.log("Pre-open Summary auto-refresh disabled", category="Info")
+
+    def refresh_data(self):
+        index_filter = self.get_selected_index()
+        self.log(f"Fetching pre-open summary for {index_filter}...", category="Info")
+        self.refresh_btn.setEnabled(False)
+        self.status_label.setText("Fetching pre-open data...")
+        self._run_worker(
+            self._fetch_data,
+            self.on_data_fetched,
+            self.on_data_error,
+            index_filter
+        )
+
+    def _fetch_data(self, index_filter):
+        result = get_pre_open_data_cached(index_filter)
+        if isinstance(result, tuple) and len(result) == 5:
+            return result
+        else:
+            raise Exception("Unexpected data format from get_pre_open_data_cached")
+
+    def on_data_fetched(self, result):
+        df, adv, dec, adv_turnover_val, dec_turnover_val = result
+
+        if "%CHNG" in df.columns:
+            df["%CHNG"] = df["%CHNG"].fillna(0.0)
+
+        price_filter = self.get_price_filter()
+        price_col = "IEP" if "IEP" in df.columns else "LTP"
+        if price_filter == "Exclude < ₹50":
+            df = df[df[price_col] >= 50]
+        elif price_filter == "Exclude < ₹100":
+            df = df[df[price_col] >= 100]
+
+        adv = (df["%CHNG"] > 0).sum()
+        dec = (df["%CHNG"] < 0).sum()
+        flat = (df["%CHNG"] == 0).sum()
+        adv_turn = df[df["%CHNG"] > 0]["VALUE"].sum()
+        dec_turn = df[df["%CHNG"] < 0]["VALUE"].sum()
+        total_turn = adv_turn + dec_turn
+        adv_tp = (adv_turn / total_turn * 100) if total_turn else 0
+        dec_tp = (dec_turn / total_turn * 100) if total_turn else 0
+
+        self.df = df
+        self.advance_count = adv
+        self.decline_count = dec
+        self.adv_turnover_pct = adv_tp
+        self.dec_turnover_pct = dec_tp
+
+        total = adv + dec
+        net = adv - dec
+        self.adv_label.setText(f"Advance: {adv} ({adv/total*100:.1f}%)" if total else "Advance: --")
+        self.dec_label.setText(f"Decline: {dec} ({dec/total*100:.1f}%)" if total else "Decline: --")
+        self.net_label.setText(f"Net: {'+' if net>=0 else ''}{net}")
+        self.adv_turn_label.setText(f"Adv Turnover: {self.adv_turnover_pct:.1f}%")
+        self.dec_turn_label.setText(f"Dec Turnover: {self.dec_turnover_pct:.1f}%")
+
+        if net > 0:
+            self.net_label.setStyleSheet("background-color: #111318; border-radius: 4px; padding: 4px 6px; font-weight: bold; font-size: 11px; color: #00e5a0;")
+        elif net < 0:
+            self.net_label.setStyleSheet("background-color: #111318; border-radius: 4px; padding: 4px 6px; font-weight: bold; font-size: 11px; color: #ff4d6d;")
+        else:
+            self.net_label.setStyleSheet("background-color: #111318; border-radius: 4px; padding: 4px 6px; font-weight: bold; font-size: 11px; color: #e0e0e0;")
+
+        self.update_adv_dec_chart()
+        self.update_turnover_chart()
+        self.update_top_table()
+        self.update_full_table()
+
+        self.refresh_btn.setEnabled(True)
+        self.status_label.setText(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
+        self.log(f"Pre-open summary refreshed. Advance: {adv}, Decline: {dec}, Flat: {flat}", category="Success")
+
+    # Chart and table methods are identical to those in MarketSummaryTab (except titles)
+    # We reuse the same implementation to avoid duplication.
+    def update_adv_dec_chart(self):
+        fig = self.advdec_canvas.figure
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#111318')
+        fig.patch.set_facecolor('#111318')
+        total = self.advance_count + self.decline_count
+        if total == 0:
+            ax.text(0.5, 0.5, "No data", ha='center', va='center', color='white')
+            self.advdec_canvas.draw()
+            return
+        adv_pct = (self.advance_count / total * 100)
+        dec_pct = (self.decline_count / total * 100)
+        net = adv_pct - dec_pct
+        categories = ['Advance', 'Decline', 'Net Diff']
+        values = [adv_pct, dec_pct, abs(net)]
+        colors = ['#2ca02c', '#d62728', '#1f77b4' if net >= 0 else '#ff7f0e']
+        bars = ax.bar(categories, values, color=colors, width=0.6)
+        ax.bar_label(bars,
+                     labels=[f"{adv_pct:.0f}%", f"{dec_pct:.0f}%", f"{'+' if net>=0 else '-'}{abs(net):.0f}%"],
+                     padding=3, fontsize=8, color='white')
+        ax.set_ylim(0, max(100, max(values)+10))
+        ax.set_ylabel("% of Total Stocks", color='white', fontsize=8)
+        ax.tick_params(colors='white', labelsize=7)
+        ax.set_title("Advance vs Decline", color='white', fontsize=9)
+        fig.tight_layout()
+        self.advdec_canvas.draw()
+
+    def update_turnover_chart(self):
+        fig = self.turnover_canvas.figure
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#111318')
+        fig.patch.set_facecolor('#111318')
+        adv_pct = self.adv_turnover_pct
+        dec_pct = self.dec_turnover_pct
+        net = adv_pct - dec_pct
+        categories = ['Advance', 'Decline', 'Net Diff']
+        values = [adv_pct, dec_pct, abs(net)]
+        colors = ['#2ca02c', '#d62728', '#1f77b4' if net >= 0 else '#ff7f0e']
+        bars = ax.bar(categories, values, color=colors, width=0.6)
+        ax.bar_label(bars,
+                     labels=[f"{adv_pct:.0f}%", f"{dec_pct:.0f}%", f"{'+' if net>=0 else '-'}{abs(net):.0f}%"],
+                     padding=3, fontsize=8, color='white')
+        ax.set_ylim(0, max(100, max(values)+10))
+        ax.set_ylabel("% of Total Turnover", color='white', fontsize=8)
+        ax.tick_params(colors='white', labelsize=7)
+        ax.set_title("Turnover Flow %", color='white', fontsize=9)
+        fig.tight_layout()
+        self.turnover_canvas.draw()
+
+    def update_top_table(self):
+        self.top_table.clear()
+        show_gainers = self.show_gainers_cb.isChecked()
+        show_losers = self.show_losers_cb.isChecked()
+        if not show_gainers and not show_losers:
+            self.top_table.setRowCount(0)
+            self.top_table.setColumnCount(0)
+            return
+
+        if show_gainers and show_losers:
+            filtered_df = self.df
+        elif show_gainers:
+            filtered_df = self.df[self.df["%CHNG"] > 0]
+        else:
+            filtered_df = self.df[self.df["%CHNG"] < 0]
+
+        if filtered_df.empty:
+            self.top_table.setRowCount(0)
+            self.top_table.setColumnCount(0)
+            return
+
+        top_active = filtered_df.nlargest(15, "VALUE")[["SYMBOL", "VALUE", "%CHNG"]].reset_index(drop=True)
+        self.top_table.setRowCount(len(top_active))
+        self.top_table.setColumnCount(3)
+        self.top_table.setHorizontalHeaderLabels(["Symbol", "Value (Cr)", "% Change"])
+        for i, row in top_active.iterrows():
+            self.top_table.setItem(i, 0, QTableWidgetItem(row["SYMBOL"]))
+            val_item = QTableWidgetItem(f"{row['VALUE']:.0f}")
+            val_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.top_table.setItem(i, 1, val_item)
+            chng_item = QTableWidgetItem(f"{row['%CHNG']:.2f}%")
+            chng_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            if row["%CHNG"] > 0:
+                chng_item.setForeground(QColor("#2ca02c"))
+            elif row["%CHNG"] < 0:
+                chng_item.setForeground(QColor("#d62728"))
+            else:
+                chng_item.setForeground(QColor("#e0e0e0"))
+            self.top_table.setItem(i, 2, chng_item)
+        self.top_table.resizeColumnsToContents()
+        self.top_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+    def update_full_table(self):
+        self.full_table.clear()
+        df_display = self.df.sort_values("VALUE", ascending=False).reset_index(drop=True)
+        self.full_table.setRowCount(len(df_display))
+        self.full_table.setColumnCount(len(df_display.columns))
+        self.full_table.setHorizontalHeaderLabels(df_display.columns)
+        for i, row in df_display.iterrows():
+            for j, col in enumerate(df_display.columns):
+                val = row[col]
+                item = QTableWidgetItem(str(val))
+                if col in ("VALUE", "%CHNG"):
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                if col == "%CHNG":
+                    if val > 0:
+                        item.setForeground(QColor("#2ca02c"))
+                    elif val < 0:
+                        item.setForeground(QColor("#d62728"))
+                    else:
+                        item.setForeground(QColor("#e0e0e0"))
+                self.full_table.setItem(i, j, item)
+        self.full_table.resizeColumnsToContents()
+        self.full_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+    def on_data_error(self, err):
+        self.refresh_btn.setEnabled(True)
+        self.status_label.setText(f"Error: {err}")
+        self.log(f"Pre-open summary error: {err}", category="Error", error=True)
+        self.auto_refresh_timer.stop()
+
+
 # ========== Main Dashboard ==========
 class ZerodhaDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Zerodha Trading Dashboard")
-        self.setGeometry(100, 100, 1200, 700)
+        self.setGeometry(100, 100, 1300, 800)
         self.load_stylesheet()
 
         self.client      = ZerodhaClient()
@@ -1915,7 +2702,7 @@ class ZerodhaDashboard(QMainWindow):
         main_layout.setContentsMargins(2, 2, 2, 2)
         main_layout.setSpacing(4)
 
-        # Log panel
+        # Log panel (unchanged)
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(2)
@@ -1950,29 +2737,32 @@ class ZerodhaDashboard(QMainWindow):
         right_layout.addWidget(self.log_container, 1)
 
         # Tabs
-        self.tabs           = QTabWidget()
+        self.tabs = QTabWidget()
         self.holdings_tab   = HoldingsTab(self.client,   self.add_log_entry)
         self.positions_tab  = PositionsTab(self.client,  self.add_log_entry)
         self.orders_tab     = OrdersTab(self.client,     self.add_log_entry)
         self.funds_tab      = FundsTab(self.client,      self.add_log_entry)
         self.order_tab      = OrderPlacementTab(self.client, self.add_log_entry)
-        self.volume_tab     = VolumeAnalysisTab(self.client, self.add_log_entry)   # NEW
+        self.volume_tab     = VolumeAnalysisTab(self.client, self.add_log_entry)
+        self.market_summary_tab = MarketSummaryTab(self.client, self.add_log_entry)
+        self.preopen_summary_tab = PreOpenSummaryTab(self.client, self.add_log_entry)
 
-        self.tabs.addTab(self.holdings_tab,  "Holdings")
-        self.tabs.addTab(self.positions_tab, "Positions")
-        self.tabs.addTab(self.orders_tab,    "Orders")
-        self.tabs.addTab(self.funds_tab,     "Funds")
-        self.tabs.addTab(self.order_tab,     "Place Order")
-        self.tabs.addTab(self.volume_tab,    "📊 Volume")   # NEW
+        self.tabs.addTab(self.holdings_tab,   "Holdings")
+        self.tabs.addTab(self.positions_tab,  "Positions")
+        self.tabs.addTab(self.orders_tab,     "Orders")
+        self.tabs.addTab(self.funds_tab,      "Funds")
+        self.tabs.addTab(self.order_tab,      "Place Order")
+        self.tabs.addTab(self.volume_tab,     "📊 Volume")
+        self.tabs.addTab(self.market_summary_tab, "📈 Market Summary")
+        self.tabs.addTab(self.preopen_summary_tab, "⏰ Pre-open Summary")
+
         self.tabs.currentChanged.connect(self.on_tab_changed)
 
         main_layout.addWidget(self.tabs, 4)
         main_layout.addLayout(right_layout, 1)
 
-        self.tabs.setCurrentIndex(4)
-        self.add_log_entry(
-            "Dashboard initialized (compact UI + Volume Analysis tab). Ready.",
-            category="Info")
+        self.tabs.setCurrentIndex(6)  # Start on Market Summary
+        self.add_log_entry("Dashboard initialized with auto-refresh and Market Summary.", category="Info")
         self.statusBar().showMessage("Ready")
 
     def load_stylesheet(self):
@@ -1994,12 +2784,7 @@ class ZerodhaDashboard(QMainWindow):
             """)
 
     def on_tab_changed(self, index):
-        name = self.tabs.tabText(index)
-        if name == "Holdings":     self.holdings_tab.refresh_data()
-        elif name == "Positions":  self.positions_tab.refresh_data()
-        elif name == "Orders":     self.orders_tab.refresh_data()
-        elif name == "Funds":      self.funds_tab.refresh_data()
-        # Volume tab: user clicks Fetch manually — no auto-refresh needed
+        pass
 
     def add_log_entry(self, message, category="Info", error=False):
         if error and category == "Info":
@@ -2046,5 +2831,5 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     window = ZerodhaDashboard()
-    window.show()
+    window.showMaximized()   # Open maximized
     sys.exit(app.exec())
