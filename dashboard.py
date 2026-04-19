@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from trading_client_cd import ZerodhaClient
+from trading_client import ZerodhaClient
 
 
 # ========== Worker Thread ==========
