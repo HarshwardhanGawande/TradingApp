@@ -221,120 +221,116 @@ def get_pre_open_data_cached(index):
     Fetches pre-open market data for F&O from NSE India and returns as DataFrame.
     """
     print(f"Calling get_pre_open_data_cached() for index: {index}")
-    base_url = "https://www.nseindia.com/api/market-data-pre-open"
-    params = {
-        'key': index,
-        'csv': 'true',
-        'selectValFormat': 'crores'
-    }
-    url = f"{base_url}?{urlencode(params)}"
+    url = "https://www.nseindia.com/api/market-data-pre-open"
+    params = {'key': index}
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json',
         'Referer': 'https://www.nseindia.com/',
-        'Accept-Language': 'en-US,en;q=0.9',
     }
+
     session = requests.Session()
-    session.get("https://www.nseindia.com", headers=headers,verify=True)
+    session.get("https://www.nseindia.com", headers=headers)
 
     try:
-        response = session.get(url, headers=headers, verify=True)
+        response = session.get(url, headers=headers, params=params)
         response.raise_for_status()
 
-        df = pd.read_csv(StringIO(response.text[160:]), header=None, sep=',', quotechar='"', on_bad_lines='skip')
+        data = response.json()
+        # extract metadata
+        metadata_list = [item["metadata"] for item in data["data"]]
 
-        columns = ['SYMBOL', 'PREV_CLOSE', 'IEP', 'CHNG', '%CHNG', 'FINAL', 'FINAL_QUANTITY', 'VALUE', 'FFM_CAP', '52W_H', '52W_L']
-        df.columns = columns
+        # convert to DataFrame
+        df = pd.DataFrame(metadata_list)
+
+        df = df[['symbol', 'pChange', 'totalTurnover', 'iep']]
+
+        # Rename columns
+        df.columns = ['SYMBOL', '%CHNG', 'VALUE', 'LTP']
+
+        # 👉 REMOVE INDEX ROW HERE
+        df = df[df['SYMBOL'] != index]
+
+        # Convert to numeric
+        df['%CHNG'] = pd.to_numeric(df['%CHNG'], errors='coerce')
+        df['VALUE'] = pd.to_numeric(df['VALUE'], errors='coerce')
+        df['LTP'] = pd.to_numeric(df['LTP'], errors='coerce')
+
+        # Sort
         df = df.sort_values(by='VALUE', ascending=False).reset_index(drop=True)
-        df = df[['SYMBOL', '%CHNG', 'VALUE', 'IEP']]
-        df["%CHNG"] = pd.to_numeric(df["%CHNG"], errors="coerce")
-        df["VALUE"] = pd.to_numeric(df["VALUE"], errors="coerce")
-        df["IEP"] = pd.to_numeric(df["IEP"], errors="coerce")
 
-        # Fix: compute turnover BEFORE overwriting df_advance/df_decline with counts
-        df_advance_rows = df[df['%CHNG'] > 0]
-        df_decline_rows = df[df['%CHNG'] < 0]
+        # Advance / Decline
+        adv = df[df['%CHNG'] > 0]
+        dec = df[df['%CHNG'] < 0]
 
-        advance_turnover = df_advance_rows['VALUE'].sum()
-        decline_turnover = df_decline_rows['VALUE'].sum()
+        advance_turnover = adv['VALUE'].sum()
+        decline_turnover = dec['VALUE'].sum()
 
-        advance_count = int(len(df_advance_rows))
-        decline_count = int(len(df_decline_rows))
+        pct_adv_turnover = int(advance_turnover / decline_turnover * 100) if decline_turnover else 0
+        pct_dec_turnover = 100 - pct_adv_turnover
 
-        percent_advance_turnover = int(
-            (advance_turnover / decline_turnover * 100)
-            if decline_turnover != 0 else 0
-        )
-        percent_decline_turnover = int(100 - percent_advance_turnover)
-
-        return df, advance_count, decline_count, percent_advance_turnover, percent_decline_turnover
+        return df, len(adv), len(dec), pct_adv_turnover, pct_dec_turnover
 
     except Exception as e:
-        print(f"Error fetching pre-open data: {str(e)}")
-        return pd.DataFrame(), 0, 0, 0, 0
+        print("Error:", e)
+        return pd.DataFrame()
 
 def get_live_nse_data(index):
-    """
-    Fetches live market data for the specified index from NSE India and returns as DataFrame.
-    """
     print("----------------------------------------------------------------")
     print(f"Fetching live data for index: {index}")
-    print("----------------------------------------------------------------")
-    base_url = "https://www.nseindia.com/api/equity-stockIndices"
-    params = {
-        'index': index,  # Use the passed index parameter
-        'csv': 'true',
-        'selectValFormat': 'crores'
-    }
-    url = f"{base_url}?{urlencode(params)}"
+
+
+    url = "https://www.nseindia.com/api/equity-stockIndices"
+    params = {'index': index}
+
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json',
         'Referer': 'https://www.nseindia.com/',
-        'Accept-Language': 'en-US,en;q=0.9',
     }
-    # NSE requires establishing a session first
+
     session = requests.Session()
-    session.get("https://www.nseindia.com", headers=headers,verify=True)  # Set cookies
+    session.get("https://www.nseindia.com", headers=headers)
 
     try:
-        response = session.get(url, headers=headers,verify=True)
+        response = session.get(url, params=params, headers=headers)
         response.raise_for_status()
-        print(f"Response status: {response.status_code}")
-        print(f"Response content type: {response.headers.get('content-type')}")
-        # Improved parsing: use header=0 since headers are present after slice
-        # print(f"First 500 chars: {response.text}")
-        df = pd.read_csv(StringIO(response.text[200:]), header=None, sep=',', quotechar='"', on_bad_lines='skip')
-        # Set proper column names
-        columns = ['SYMBOL', 'OPEN', 'HIGH', 'LOW', 'PREV. CLOSE', 'LTP', 'INDICATIVE CLOSE', 'CHNG', '%CHNG', 'VOLUME', 'VALUE', '52W H', '52W L', '30 D %CHNG', '365 D %CHNG']
-        df.columns = columns
-        print("---------------------------------------------------------------")
-        print("Number of rows in live data:", df.shape[0])
-        print("---------------------------------------------------------------")
+
+        data = response.json()
+
+        df = pd.DataFrame(data['data'])
+
+        # Keep only what you need
+        df = df[['symbol', 'pChange', 'totalTradedValue', 'lastPrice']]
+
+        # Rename columns
+        df.columns = ['SYMBOL', '%CHNG', 'VALUE', 'LTP']
+
+        # 👉 REMOVE INDEX ROW HERE
+        df = df[df['SYMBOL'] != index]
+
+        # Convert to numeric
+        df['%CHNG'] = pd.to_numeric(df['%CHNG'], errors='coerce')
+        df['VALUE'] = pd.to_numeric(df['VALUE'], errors='coerce')
+        df['LTP'] = pd.to_numeric(df['LTP'], errors='coerce')
+
+        # Sort
         df = df.sort_values(by='VALUE', ascending=False).reset_index(drop=True)
-        df = df[['SYMBOL','%CHNG', 'VALUE', "LTP"]]
-        df["%CHNG"] = pd.to_numeric(df["%CHNG"], errors="coerce")
-        df["VALUE"] = pd.to_numeric(df["VALUE"], errors="coerce")
-        df["LTP"] = pd.to_numeric(df["LTP"], errors="coerce")
 
+        # Advance / Decline
+        adv = df[df['%CHNG'] > 0]
+        dec = df[df['%CHNG'] < 0]
 
-        df_advance = df[df['%CHNG'] > 0] # Filter for advancing stocks
-        df_decline = df[df['%CHNG'] < 0] # Filter for declining stocks
-        advance_turnover = df_advance['VALUE'].sum()
-        decline_turnover = df_decline['VALUE'].sum()
-        percent_advance_turnover = int(advance_turnover / decline_turnover * 100) if decline_turnover != 0 else 0
-        percent_decline_turnover = int(100 - percent_advance_turnover)
-        df_advance =(len(df[df['%CHNG'] > 0])) # Filter for advancing stocks
-        df_decline = int(len(df[df['%CHNG'] < 0])) # Filter for declining stocks
-        return df,df_advance,df_decline,percent_advance_turnover,percent_decline_turnover
+        advance_turnover = adv['VALUE'].sum()
+        decline_turnover = dec['VALUE'].sum()
+
+        pct_adv_turnover = int(advance_turnover / decline_turnover * 100) if decline_turnover else 0
+        pct_dec_turnover = 100 - pct_adv_turnover
+
+        return df, len(adv), len(dec), pct_adv_turnover, pct_dec_turnover
 
     except Exception as e:
-        print(f"Error fetching live NSE data: {str(e)}")
-        print(f"Full response text: {response.text}")
+        print("Error:", e)
         return pd.DataFrame()
 
 
-# # In zerodha_data.py, add this wrapper:
-# @st.cache_data(show_spinner=False, ttl=300)
-# def get_pre_open_data_cached():
-#     return get_pre_open_data()

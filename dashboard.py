@@ -15,10 +15,11 @@ from PyQt6.QtWidgets import (
     QTabWidget, QTableWidget, QTableWidgetItem, QLabel, QPushButton,
     QComboBox, QSpinBox, QDoubleSpinBox, QGroupBox, QFormLayout,
     QMessageBox, QHeaderView, QGridLayout, QTextEdit, QCheckBox,
-    QFrame, QDialog, QRadioButton, QAbstractItemView, QButtonGroup
+    QFrame, QDialog, QRadioButton, QAbstractItemView, QButtonGroup,
+    QStyledItemDelegate
 )
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRect
+from PyQt6.QtGui import QFont, QColor, QBrush
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -26,6 +27,55 @@ from matplotlib.figure import Figure
 
 from trading_client import ZerodhaClient
 from zerodha_data import get_live_nse_data, get_pre_open_data_cached
+
+
+# ========== Bar Delegate for Value Column ==========
+class BarDelegate(QStyledItemDelegate):
+    """Delegate that draws a horizontal bar in the cell background, colored by % change."""
+    def __init__(self, parent=None, max_value=100):
+        super().__init__(parent)
+        self.max_value = max_value
+
+    def set_max_value(self, max_value):
+        self.max_value = max_value
+
+    def paint(self, painter, option, index):
+        # Get the value from the current cell (Value column)
+        value_str = index.data()
+        try:
+            clean_value = value_str.replace('Cr', '').replace(',', '').strip()
+            value = float(clean_value)
+        except:
+            value = 0
+
+        # Get the % change from the same row, column 2
+        pct_change_index = index.sibling(index.row(), 2)
+        pct_str = pct_change_index.data()
+        try:
+            pct = float(pct_str.replace('%', '').strip())
+        except:
+            pct = 0
+
+        # Choose bar color based on % change
+        if pct > 0:
+            bar_color = QColor(44, 160, 44, 100)   # green with transparency
+        elif pct < 0:
+            bar_color = QColor(214, 39, 40, 100)   # red with transparency
+        else:
+            bar_color = QColor(100, 100, 100, 100) # grey
+
+        # Calculate bar width
+        if self.max_value > 0:
+            bar_width = int(option.rect.width() * (value / self.max_value))
+        else:
+            bar_width = 0
+
+        if bar_width > 0:
+            bar_rect = QRect(option.rect.left(), option.rect.top(), bar_width, option.rect.height())
+            painter.fillRect(bar_rect, QBrush(bar_color))
+
+        # Draw the text on top
+        super().paint(painter, option, index)
 
 
 # ========== Worker Thread ==========
@@ -2005,7 +2055,7 @@ class MarketSummaryTab(BaseTab):
         self.index_group = QButtonGroup(self)
         self.index_group.setExclusive(True)
         self.index_checkboxes = {}
-        index_list = ["NIFTY 50", "NIFTY 500", "FO", "NIFTY BANK", "IT", "AUTO", "ENERGY", "OIL&GAS"]
+        index_list = ["NIFTY 50", "NIFTY 500", "FO", "NIFTY BANK", "NIFTY IT", "NIFTY AUTO", "NIFTY ENERGY", "NIFTY OIL & GAS"]
         for idx_name in index_list:
             cb = QCheckBox(idx_name)
             self.index_group.addButton(cb)
@@ -2105,6 +2155,9 @@ class MarketSummaryTab(BaseTab):
         layout.addWidget(self.status_label)
 
         self.setLayout(layout)
+
+        # ✅ IMPORTANT: Call on_index_changed AFTER all widgets are created
+        self.on_index_changed()
 
     def on_index_changed(self):
         current_index = self.get_selected_index()
@@ -2268,9 +2321,12 @@ class MarketSummaryTab(BaseTab):
         self.top_table.setRowCount(len(top_active))
         self.top_table.setColumnCount(3)
         self.top_table.setHorizontalHeaderLabels(["Symbol", "Value (Cr)", "% Change"])
+
+        max_val = top_active["VALUE"].max() if not top_active.empty else 1
+
         for i, row in top_active.iterrows():
             self.top_table.setItem(i, 0, QTableWidgetItem(row["SYMBOL"]))
-            val_item = QTableWidgetItem(f"{row['VALUE']:.0f}")
+            val_item = QTableWidgetItem(f"{row['VALUE']:.0f} Cr")
             val_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.top_table.setItem(i, 1, val_item)
             chng_item = QTableWidgetItem(f"{row['%CHNG']:.2f}%")
@@ -2282,84 +2338,86 @@ class MarketSummaryTab(BaseTab):
             else:
                 chng_item.setForeground(QColor("#e0e0e0"))
             self.top_table.setItem(i, 2, chng_item)
+
+        delegate = BarDelegate(self.top_table, max_value=max_val)
+        self.top_table.setItemDelegateForColumn(1, delegate)
+
         self.top_table.resizeColumnsToContents()
         self.top_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
     def update_histogram(self):
-            self.hist_figure.clear()
-            ax = self.hist_figure.add_subplot(111)
-            ax.set_facecolor('#111318')
-            self.hist_figure.patch.set_facecolor('#111318')
+        self.hist_figure.clear()
+        ax = self.hist_figure.add_subplot(111)
+        ax.set_facecolor('#111318')
+        self.hist_figure.patch.set_facecolor('#111318')
 
-            if self.df.empty or "%CHNG" not in self.df.columns:
-                ax.text(0.5, 0.5, "No data", ha='center', va='center', color='white')
-                self.hist_canvas.draw()
-                return
-
-            buckets = [
-                ("< -3%",   None,  -3.0,  "#8b0000"),
-                ("-3 to -2%", -3.0, -2.0, "#d62728"),
-                ("-2 to -1%", -2.0, -1.0, "#e07070"),
-                ("-1 to 0%",  -1.0,  0.0, "#c0a0a0"),
-                ("Flat",       0.0,  0.0, "#6a7080"),
-                ("0 to 1%",    0.0,  1.0, "#90c090"),
-                ("1 to 2%",    1.0,  2.0, "#4caf50"),
-                ("2 to 3%",    2.0,  3.0, "#2ca02c"),
-                ("> 3%",       3.0, None, "#005500"),
-            ]
-
-            labels = []
-            counts = []
-            colors = []
-
-            chng = self.df["%CHNG"]
-            for label, low, high, color in buckets:
-                if low is None:
-                    mask = chng < high
-                elif high is None:
-                    mask = chng > low
-                elif low == 0.0 and high == 0.0:
-                    mask = chng == 0.0
-                elif low < 0 and high == 0.0:
-                    mask = (chng >= low) & (chng < 0.0)
-                elif low == 0.0 and high > 0:
-                    mask = (chng > 0.0) & (chng <= high)
-                else:
-                    mask = (chng >= low) & (chng < high)
-                labels.append(label)
-                counts.append(int(mask.sum()))
-                colors.append(color)
-
-            x_pos = list(range(len(labels)))
-            bars = ax.bar(x_pos, counts, color=colors, width=0.72, zorder=2)
-
-            # Count labels on top of bars
-            for bar, count in zip(bars, counts):
-                if count > 0:
-                    ax.text(
-                        bar.get_x() + bar.get_width() / 2,
-                        bar.get_height() + 0.3,
-                        str(count),
-                        ha='center', va='bottom',
-                        fontsize=8, color='#c0c8d8', fontweight='bold'
-                    )
-
-            ax.set_xticks(x_pos)
-            ax.set_xticklabels(labels, fontsize=7.5, color='#8890a0', rotation=15, ha='right')
-            ax.set_ylabel("No. of Stocks", color='#6a7080', fontsize=8)
-            ax.tick_params(axis='y', colors='#6a7080', labelsize=7)
-            ax.tick_params(axis='x', colors='#6a7080')
-            ax.set_title("Stock % Change Distribution", color='#8890a0', fontsize=9, pad=6)
-            ax.yaxis.grid(True, color='#1e2128', linewidth=0.6, zorder=0)
-            ax.set_axisbelow(True)
-            for sp in ax.spines.values():
-                sp.set_color('#1e2128')
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-
-            self.hist_figure.subplots_adjust(
-                left=0.06, right=0.98, top=0.88, bottom=0.28)
+        if self.df.empty or "%CHNG" not in self.df.columns:
+            ax.text(0.5, 0.5, "No data", ha='center', va='center', color='white')
             self.hist_canvas.draw()
+            return
+
+        buckets = [
+            ("< -3%",   None,  -3.0,  "#8b0000"),
+            ("-3 to -2%", -3.0, -2.0, "#d62728"),
+            ("-2 to -1%", -2.0, -1.0, "#e07070"),
+            ("-1 to 0%",  -1.0,  0.0, "#c0a0a0"),
+            ("Flat",       0.0,  0.0, "#6a7080"),
+            ("0 to 1%",    0.0,  1.0, "#90c090"),
+            ("1 to 2%",    1.0,  2.0, "#4caf50"),
+            ("2 to 3%",    2.0,  3.0, "#2ca02c"),
+            ("> 3%",       3.0, None, "#005500"),
+        ]
+
+        labels = []
+        counts = []
+        colors = []
+
+        chng = self.df["%CHNG"]
+        for label, low, high, color in buckets:
+            if low is None:
+                mask = chng < high
+            elif high is None:
+                mask = chng > low
+            elif low == 0.0 and high == 0.0:
+                mask = chng == 0.0
+            elif low < 0 and high == 0.0:
+                mask = (chng >= low) & (chng < 0.0)
+            elif low == 0.0 and high > 0:
+                mask = (chng > 0.0) & (chng <= high)
+            else:
+                mask = (chng >= low) & (chng < high)
+            labels.append(label)
+            counts.append(int(mask.sum()))
+            colors.append(color)
+
+        x_pos = list(range(len(labels)))
+        bars = ax.bar(x_pos, counts, color=colors, width=0.72, zorder=2)
+
+        for bar, count in zip(bars, counts):
+            if count > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.3,
+                    str(count),
+                    ha='center', va='bottom',
+                    fontsize=8, color='#c0c8d8', fontweight='bold'
+                )
+
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(labels, fontsize=7.5, color='#8890a0', rotation=15, ha='right')
+        ax.set_ylabel("No. of Stocks", color='#6a7080', fontsize=8)
+        ax.tick_params(axis='y', colors='#6a7080', labelsize=7)
+        ax.tick_params(axis='x', colors='#6a7080')
+        ax.set_title("Stock % Change Distribution", color='#8890a0', fontsize=9, pad=6)
+        ax.yaxis.grid(True, color='#1e2128', linewidth=0.6, zorder=0)
+        ax.set_axisbelow(True)
+        for sp in ax.spines.values():
+            sp.set_color('#1e2128')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        self.hist_figure.subplots_adjust(left=0.06, right=0.98, top=0.88, bottom=0.28)
+        self.hist_canvas.draw()
 
     def on_data_error(self, err):
         self.refresh_btn.setEnabled(True)
@@ -2388,9 +2446,7 @@ class PreOpenSummaryTab(BaseTab):
         layout.setSpacing(6)
         layout.setContentsMargins(6, 6, 6, 6)
 
-        # ──────────────────────────────────────────────────────────────────
-        # Single row for all controls
-        # ──────────────────────────────────────────────────────────────────
+        # Controls row
         controls_layout = QHBoxLayout()
         controls_layout.setSpacing(8)
 
@@ -2407,7 +2463,6 @@ class PreOpenSummaryTab(BaseTab):
         self.index_checkboxes["ALL"].setChecked(True)
 
         controls_layout.addWidget(QLabel("   |   "))
-
         controls_layout.addWidget(QLabel("Price Filter:"))
         self.price_group = QButtonGroup(self)
         self.price_group.setExclusive(True)
@@ -2423,27 +2478,22 @@ class PreOpenSummaryTab(BaseTab):
         controls_layout.addWidget(self.price_radio_exclude_100)
 
         controls_layout.addStretch()
-
         self.refresh_btn = QPushButton("🔄 Refresh")
         self.refresh_btn.clicked.connect(self.refresh_data)
         controls_layout.addWidget(self.refresh_btn)
-
         self.auto_refresh_cb = QCheckBox("Auto-refresh (30s)")
         self.auto_refresh_cb.stateChanged.connect(self.toggle_auto_refresh)
         controls_layout.addWidget(self.auto_refresh_cb)
 
         layout.addLayout(controls_layout)
 
-        # Connect index checkboxes and price radio buttons
         for cb in self.index_checkboxes.values():
             cb.toggled.connect(self.on_index_changed)
         self.price_radio_no_filter.toggled.connect(self.on_price_filter_changed)
         self.price_radio_exclude_50.toggled.connect(self.on_price_filter_changed)
         self.price_radio_exclude_100.toggled.connect(self.on_price_filter_changed)
 
-        # ──────────────────────────────────────────────────────────────────
-        # Metrics cards (compact row)
-        # ──────────────────────────────────────────────────────────────────
+        # Metrics cards
         metrics_layout = QHBoxLayout()
         metrics_layout.setSpacing(6)
         self.adv_label = QLabel("Advance: --")
@@ -2456,9 +2506,7 @@ class PreOpenSummaryTab(BaseTab):
             metrics_layout.addWidget(lbl)
         layout.addLayout(metrics_layout)
 
-        # ──────────────────────────────────────────────────────────────────
         # Three equal columns
-        # ──────────────────────────────────────────────────────────────────
         columns_layout = QHBoxLayout()
         columns_layout.setSpacing(8)
 
@@ -2612,8 +2660,6 @@ class PreOpenSummaryTab(BaseTab):
         self.status_label.setText(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
         self.log(f"Pre-open summary refreshed. Advance: {adv}, Decline: {dec}, Flat: {flat}", category="Success")
 
-    # Chart and table methods are identical to those in MarketSummaryTab (except titles)
-    # We reuse the same implementation to avoid duplication.
     def update_adv_dec_chart(self):
         fig = self.advdec_canvas.figure
         fig.clear()
@@ -2690,9 +2736,12 @@ class PreOpenSummaryTab(BaseTab):
         self.top_table.setRowCount(len(top_active))
         self.top_table.setColumnCount(3)
         self.top_table.setHorizontalHeaderLabels(["Symbol", "Value (Cr)", "% Change"])
+
+        max_val = top_active["VALUE"].max() if not top_active.empty else 1
+
         for i, row in top_active.iterrows():
             self.top_table.setItem(i, 0, QTableWidgetItem(row["SYMBOL"]))
-            val_item = QTableWidgetItem(f"{row['VALUE']:.0f}")
+            val_item = QTableWidgetItem(f"{row['VALUE']:.0f} Cr")
             val_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.top_table.setItem(i, 1, val_item)
             chng_item = QTableWidgetItem(f"{row['%CHNG']:.2f}%")
@@ -2704,79 +2753,84 @@ class PreOpenSummaryTab(BaseTab):
             else:
                 chng_item.setForeground(QColor("#e0e0e0"))
             self.top_table.setItem(i, 2, chng_item)
+
+        delegate = BarDelegate(self.top_table, max_value=max_val)
+        self.top_table.setItemDelegateForColumn(1, delegate)
+
         self.top_table.resizeColumnsToContents()
         self.top_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
     def update_histogram(self):
-            self.hist_figure.clear()
-            ax = self.hist_figure.add_subplot(111)
-            ax.set_facecolor('#111318')
-            self.hist_figure.patch.set_facecolor('#111318')
+        self.hist_figure.clear()
+        ax = self.hist_figure.add_subplot(111)
+        ax.set_facecolor('#111318')
+        self.hist_figure.patch.set_facecolor('#111318')
 
-            if self.df.empty or "%CHNG" not in self.df.columns:
-                ax.text(0.5, 0.5, "No data", ha='center', va='center', color='white')
-                self.hist_canvas.draw()
-                return
-
-            buckets = [
-                ("< -3%",     None,  -3.0,  "#8b0000"),
-                ("-3 to -2%", -3.0,  -2.0,  "#d62728"),
-                ("-2 to -1%", -2.0,  -1.0,  "#e07070"),
-                ("-1 to 0%",  -1.0,   0.0,  "#c0a0a0"),
-                ("Flat",       0.0,   0.0,  "#6a7080"),
-                ("0 to 1%",    0.0,   1.0,  "#90c090"),
-                ("1 to 2%",    1.0,   2.0,  "#4caf50"),
-                ("2 to 3%",    2.0,   3.0,  "#2ca02c"),
-                ("> 3%",       3.0,  None,  "#005500"),
-            ]
-
-            labels, counts, colors = [], [], []
-            chng = self.df["%CHNG"]
-            for label, low, high, color in buckets:
-                if low is None:
-                    mask = chng < high
-                elif high is None:
-                    mask = chng > low
-                elif low == 0.0 and high == 0.0:
-                    mask = chng == 0.0
-                elif low < 0 and high == 0.0:
-                    mask = (chng >= low) & (chng < 0.0)
-                elif low == 0.0 and high > 0:
-                    mask = (chng > 0.0) & (chng <= high)
-                else:
-                    mask = (chng >= low) & (chng < high)
-                labels.append(label)
-                counts.append(int(mask.sum()))
-                colors.append(color)
-
-            x_pos = list(range(len(labels)))
-            bars = ax.bar(x_pos, counts, color=colors, width=0.72, zorder=2)
-
-            for bar, count in zip(bars, counts):
-                if count > 0:
-                    ax.text(
-                        bar.get_x() + bar.get_width() / 2,
-                        bar.get_height() + 0.3,
-                        str(count),
-                        ha='center', va='bottom',
-                        fontsize=8, color='#c0c8d8', fontweight='bold'
-                    )
-
-            ax.set_xticks(x_pos)
-            ax.set_xticklabels(labels, fontsize=7.5, color='#8890a0', rotation=15, ha='right')
-            ax.set_ylabel("No. of Stocks", color='#6a7080', fontsize=8)
-            ax.tick_params(axis='y', colors='#6a7080', labelsize=7)
-            ax.tick_params(axis='x', colors='#6a7080')
-            ax.set_title("Stock % Change Distribution (Pre-open)", color='#8890a0', fontsize=9, pad=6)
-            ax.yaxis.grid(True, color='#1e2128', linewidth=0.6, zorder=0)
-            ax.set_axisbelow(True)
-            for sp in ax.spines.values():
-                sp.set_color('#1e2128')
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-
-            self.hist_figure.subplots_adjust(left=0.06, right=0.98, top=0.88, bottom=0.28)
+        if self.df.empty or "%CHNG" not in self.df.columns:
+            ax.text(0.5, 0.5, "No data", ha='center', va='center', color='white')
             self.hist_canvas.draw()
+            return
+
+        buckets = [
+            ("< -3%",     None,  -3.0,  "#8b0000"),
+            ("-3 to -2%", -3.0,  -2.0,  "#d62728"),
+            ("-2 to -1%", -2.0,  -1.0,  "#e07070"),
+            ("-1 to 0%",  -1.0,   0.0,  "#c0a0a0"),
+            ("Flat",       0.0,   0.0,  "#6a7080"),
+            ("0 to 1%",    0.0,   1.0,  "#90c090"),
+            ("1 to 2%",    1.0,   2.0,  "#4caf50"),
+            ("2 to 3%",    2.0,   3.0,  "#2ca02c"),
+            ("> 3%",       3.0,  None,  "#005500"),
+        ]
+
+        labels, counts, colors = [], [], []
+        chng = self.df["%CHNG"]
+        for label, low, high, color in buckets:
+            if low is None:
+                mask = chng < high
+            elif high is None:
+                mask = chng > low
+            elif low == 0.0 and high == 0.0:
+                mask = chng == 0.0
+            elif low < 0 and high == 0.0:
+                mask = (chng >= low) & (chng < 0.0)
+            elif low == 0.0 and high > 0:
+                mask = (chng > 0.0) & (chng <= high)
+            else:
+                mask = (chng >= low) & (chng < high)
+            labels.append(label)
+            counts.append(int(mask.sum()))
+            colors.append(color)
+
+        x_pos = list(range(len(labels)))
+        bars = ax.bar(x_pos, counts, color=colors, width=0.72, zorder=2)
+
+        for bar, count in zip(bars, counts):
+            if count > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.3,
+                    str(count),
+                    ha='center', va='bottom',
+                    fontsize=8, color='#c0c8d8', fontweight='bold'
+                )
+
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(labels, fontsize=7.5, color='#8890a0', rotation=15, ha='right')
+        ax.set_ylabel("No. of Stocks", color='#6a7080', fontsize=8)
+        ax.tick_params(axis='y', colors='#6a7080', labelsize=7)
+        ax.tick_params(axis='x', colors='#6a7080')
+        ax.set_title("Stock % Change Distribution (Pre-open)", color='#8890a0', fontsize=9, pad=6)
+        ax.yaxis.grid(True, color='#1e2128', linewidth=0.6, zorder=0)
+        ax.set_axisbelow(True)
+        for sp in ax.spines.values():
+            sp.set_color('#1e2128')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        self.hist_figure.subplots_adjust(left=0.06, right=0.98, top=0.88, bottom=0.28)
+        self.hist_canvas.draw()
+
     def on_data_error(self, err):
         self.refresh_btn.setEnabled(True)
         self.status_label.setText(f"Error: {err}")
@@ -2933,5 +2987,5 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     window = ZerodhaDashboard()
-    window.showMaximized()   # Open maximized
+    window.showMaximized()
     sys.exit(app.exec())
